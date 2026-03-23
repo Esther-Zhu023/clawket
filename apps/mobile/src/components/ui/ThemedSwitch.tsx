@@ -1,0 +1,82 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { ColorValue, Platform, Switch, SwitchProps } from 'react-native';
+
+/**
+ * Wrapper around RN Switch that works around an iOS bug where
+ * trackColor and thumbColor are not applied on the initial render
+ * when value starts as true.
+ *
+ * Root cause: iOS only applies custom colors when it detects a
+ * prop CHANGE. On initial mount with value=true, the colors are
+ * "new" but not "changed", so iOS ignores them.
+ *
+ * Fix: when value=true on iOS, run a short boot -> ready cycle:
+ * - boot: value=false without custom colors
+ * - ready: value=true with custom colors
+ * and force remount between phases so UIKit fully reapplies styling.
+ */
+export function ThemedSwitch(props: SwitchProps): React.JSX.Element {
+  if (Platform.OS !== 'ios') {
+    return <Switch {...props} />;
+  }
+
+  const { value, thumbColor, trackColor, onValueChange, ...rest } = props;
+  const [phase, setPhase] = useState<'boot' | 'ready'>(value ? 'boot' : 'ready');
+  const colorSignature = useMemo(() => {
+    const toKey = (input: ColorValue | null | undefined): string => {
+      if (input == null) return 'nil';
+      return typeof input === 'string' || typeof input === 'number' ? String(input) : 'obj';
+    };
+    return `${toKey(trackColor?.false)}|${toKey(trackColor?.true)}|${toKey(thumbColor)}`;
+  }, [thumbColor, trackColor?.false, trackColor?.true]);
+
+  useEffect(() => {
+    if (!value) {
+      setPhase('ready');
+      return;
+    }
+
+    setPhase('boot');
+    let cancelled = false;
+    let raf1 = 0;
+    let raf2 = 0;
+    const fallback = setTimeout(() => {
+      if (!cancelled) setPhase('ready');
+    }, 120);
+
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (!cancelled) setPhase('ready');
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(fallback);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [colorSignature, value]);
+
+  if (phase === 'boot') {
+    return (
+      <Switch
+        key={`ios-switch-boot-${colorSignature}`}
+        {...rest}
+        value={false}
+        onValueChange={onValueChange}
+      />
+    );
+  }
+
+  return (
+    <Switch
+      key={`ios-switch-ready-${value ? '1' : '0'}-${colorSignature}`}
+      {...rest}
+      value={value}
+      thumbColor={thumbColor}
+      trackColor={trackColor}
+      onValueChange={onValueChange}
+    />
+  );
+}

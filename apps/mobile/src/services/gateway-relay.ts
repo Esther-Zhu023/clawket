@@ -1,0 +1,297 @@
+import type { GatewayConfig } from '../types';
+import { normalizeWsUrl } from './gateway-auth';
+
+export const RELAY_CONTROL_PREFIX = '__clawket_relay_control__:';
+
+export type RelayLookupResult = {
+  relayUrl: string;
+  accessToken: string;
+};
+
+export type RelayConnectAuthSelection = {
+  auth: {
+    token?: string;
+    password?: string;
+    deviceToken?: string;
+    bootstrapToken?: string;
+  };
+  signatureToken?: string;
+  source: 'device-token' | 'bootstrap-token' | 'legacy-token' | 'legacy-password' | 'none';
+};
+
+export type RelayControlFrame = {
+  event: string;
+  payload: Record<string, unknown>;
+};
+
+export type PendingRelayBootstrapRequest = {
+  requestId: string;
+  startedAt: number;
+  timeout: ReturnType<typeof setTimeout>;
+  resolve: (bootstrapToken: string) => void;
+  reject: (error: Error) => void;
+};
+
+export class RelayBootstrapRequestError extends Error {
+  public readonly code: 'relay_bootstrap_timeout' | 'relay_bootstrap_failed';
+  public readonly detailCode?: string;
+
+  constructor(
+    code: 'relay_bootstrap_timeout' | 'relay_bootstrap_failed',
+    message: string,
+    detailCode?: string,
+  ) {
+    super(message);
+    this.name = 'RelayBootstrapRequestError';
+    this.code = code;
+    this.detailCode = detailCode;
+  }
+}
+
+export type GatewayRelayContext = {
+  config: GatewayConfig | null;
+  connectAttemptId: number;
+  manuallyClosed: boolean;
+  connectTraceId: string | null;
+  relayAttemptedForCycle: boolean;
+  relayBootstrapInFlight: boolean;
+  reconnectBlockedReason: { code: string; message: string; hint?: string } | null;
+  logTelemetry: (event: string, fields: Record<string, unknown>) => void;
+  redactWsUrl: (rawUrl: string) => string;
+  ensureIdentity: () => Promise<{ deviceId: string }>;
+  openSocket: (wsUrl: string, route: 'direct' | 'relay', attemptId: number) => void;
+  refreshRelayRouteInBackground: (attemptId: number) => Promise<void>;
+  scheduleReconnect: () => void;
+  clearRelayBootstrapTimer: () => void;
+  blockReconnect: (reason: { code: string; message: string; hint?: string }) => void;
+  emit: (event: 'error', payload: { code: string; message: string; retryable?: boolean; hint?: string }) => void;
+  isNonRetryableAuthError: (message: string) => boolean;
+};
+
+export function shouldTryRelayFallback(_context: GatewayRelayContext, _route: 'direct' | 'relay'): boolean {
+  return false;
+}
+
+export function shouldConnectRelayFirst(context: GatewayRelayContext): boolean {
+  return context.config?.mode === 'relay'
+    && !!context.config?.url
+    && !!context.config?.relay?.gatewayId;
+}
+
+export async function tryConnectRelayFastPath(context: GatewayRelayContext, attemptId: number): Promise<void> {
+  try {
+    const relayConfig = context.config?.relay;
+    const relayUrl = context.config?.url?.trim() ?? '';
+    const accessToken = relayConfig?.clientToken?.trim() ?? '';
+    if (!relayConfig?.gatewayId || !relayUrl || !accessToken) {
+      throw new Error('Relay connection is not configured.');
+    }
+    const identity = await context.ensureIdentity();
+    if (attemptId !== context.connectAttemptId || context.manuallyClosed) return;
+    const relayClientUrl = buildRelayClientWsUrl(
+      relayUrl,
+      relayConfig.gatewayId,
+      accessToken,
+      identity.deviceId,
+      context.connectTraceId ?? undefined,
+    );
+    context.logTelemetry('relay_fastpath_connect', {
+      attemptId,
+      source: 'configured',
+      relayUrl: context.redactWsUrl(relayClientUrl),
+    });
+    context.relayBootstrapInFlight = false;
+    context.clearRelayBootstrapTimer();
+    context.openSocket(normalizeWsUrl(relayClientUrl), 'relay', attemptId);
+  } catch (error: unknown) {
+    if (attemptId !== context.connectAttemptId || context.manuallyClosed) return;
+    const message = error instanceof Error ? error.message : String(error);
+    context.logTelemetry('relay_fastpath_failed', { attemptId, message });
+    context.relayBootstrapInFlight = false;
+    context.clearRelayBootstrapTimer();
+    context.blockReconnect({
+      code: 'relay_config_invalid',
+      message: 'Relay connection is incomplete.',
+      hint: 'Scan a fresh Clawket Bridge QR code or re-enter the paired Relay details.',
+    });
+  }
+}
+
+export async function refreshRelayRouteInBackground(_context: GatewayRelayContext, _attemptId: number): Promise<void> {
+  // Relay routes are now fixed after pairing; there is nothing to refresh.
+}
+
+export async function tryConnectViaRelay(context: GatewayRelayContext, attemptId: number): Promise<void> {
+  await tryConnectRelayFastPath(context, attemptId);
+}
+
+export async function lookupRelayRoute(
+  context: GatewayRelayContext,
+  _options: { forceNetwork?: boolean } = {},
+): Promise<RelayLookupResult | null> {
+  const relayConfig = context.config?.relay;
+  const relayUrl = context.config?.url?.trim() ?? '';
+  const accessToken = relayConfig?.clientToken?.trim() ?? '';
+  if (!relayConfig?.gatewayId || !relayUrl || !accessToken) return null;
+  return { relayUrl, accessToken };
+}
+
+export async function resolveRelayAccessToken(
+  context: GatewayRelayContext,
+  relayConfig?: NonNullable<GatewayConfig['relay']>,
+): Promise<string> {
+  if (!relayConfig?.gatewayId) {
+    throw new Error('Relay gateway ID is not configured.');
+  }
+  const token = relayConfig.clientToken?.trim() ?? '';
+  if (!token) {
+    throw new Error('Relay pairing credential is not configured.');
+  }
+  return token;
+}
+
+export function relaySupportsBootstrapV2(relayConfig?: NonNullable<GatewayConfig['relay']>): boolean {
+  if (relayConfig?.supportsBootstrap === true) return true;
+  if (relayConfig?.supportsBootstrap === false) return false;
+  return (relayConfig?.protocolVersion ?? 0) >= 2;
+}
+
+export function selectRelayConnectAuth(params: {
+  token?: string;
+  password?: string;
+  storedDeviceToken?: string | null;
+  bootstrapToken?: string | null;
+}): RelayConnectAuthSelection {
+  const deviceToken = trimToUndefined(params.storedDeviceToken);
+  if (deviceToken) {
+    return {
+      auth: { deviceToken },
+      signatureToken: deviceToken,
+      source: 'device-token',
+    };
+  }
+
+  const bootstrapToken = trimToUndefined(params.bootstrapToken);
+  if (bootstrapToken) {
+    return {
+      auth: { bootstrapToken },
+      signatureToken: bootstrapToken,
+      source: 'bootstrap-token',
+    };
+  }
+
+  const token = trimToUndefined(params.token);
+  if (token) {
+    return {
+      auth: { token },
+      signatureToken: token,
+      source: 'legacy-token',
+    };
+  }
+
+  const password = trimToUndefined(params.password);
+  if (password) {
+    return {
+      auth: { password },
+      source: 'legacy-password',
+    };
+  }
+
+  return { auth: {}, source: 'none' };
+}
+
+export function buildRelayBootstrapRequestFrame(params: {
+  requestId: string;
+  deviceId: string;
+  publicKey: string;
+  role: string;
+  scopes: string[];
+}): string {
+  return `${RELAY_CONTROL_PREFIX}${JSON.stringify({
+    type: 'control',
+    event: 'bootstrap.request',
+    requestId: params.requestId,
+    payload: {
+      deviceId: params.deviceId,
+      publicKey: params.publicKey,
+      role: params.role,
+      scopes: params.scopes,
+    },
+  })}`;
+}
+
+export function parseRelayControlFrame(raw: string): RelayControlFrame | null {
+  if (!raw.startsWith(RELAY_CONTROL_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(RELAY_CONTROL_PREFIX.length)) as {
+      event?: unknown;
+      [key: string]: unknown;
+    };
+    if (typeof parsed.event !== 'string' || !parsed.event.trim()) return null;
+    const { event, ...payload } = parsed;
+    return {
+      event: event.trim(),
+      payload,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function parseRelayBootstrapIssued(control: RelayControlFrame): { requestId?: string; bootstrapToken: string } | null {
+  if (control.event !== 'bootstrap.issued') return null;
+  const payload = unwrapRelayControlPayload(control.payload);
+  const bootstrapToken = trimToUndefined(payload.bootstrapToken ?? payload.token);
+  if (!bootstrapToken) return null;
+  const requestId = trimToUndefined(payload.requestId);
+  return { requestId, bootstrapToken };
+}
+
+export function parseRelayBootstrapError(control: RelayControlFrame): { requestId?: string; error: RelayBootstrapRequestError } | null {
+  if (control.event !== 'bootstrap.error') return null;
+  const payload = unwrapRelayControlPayload(control.payload);
+  const errorRecord = payload.error && typeof payload.error === 'object'
+    ? payload.error as Record<string, unknown>
+    : undefined;
+  const requestId = trimToUndefined(payload.requestId);
+  const detailCode = trimToUndefined(payload.code ?? errorRecord?.code);
+  const rawMessage = trimToUndefined(payload.message ?? errorRecord?.message) ?? 'Relay bootstrap failed.';
+  const message = detailCode ? `[${detailCode}] ${rawMessage}` : rawMessage;
+  return {
+    requestId,
+    error: new RelayBootstrapRequestError('relay_bootstrap_failed', message, detailCode),
+  };
+}
+
+export function buildRelayClientWsUrl(
+  relayUrl: string,
+  relayGatewayId: string,
+  token: string,
+  clientId: string,
+  traceId?: string,
+): string {
+  const base = normalizeWsUrl(relayUrl);
+  const url = new URL(base);
+  if (!url.pathname || url.pathname === '/') {
+    url.pathname = '/ws';
+  }
+  url.searchParams.set('gatewayId', relayGatewayId);
+  url.searchParams.set('role', 'client');
+  url.searchParams.set('clientId', clientId);
+  url.searchParams.set('token', token);
+  if (traceId) url.searchParams.set('traceId', traceId);
+  return url.toString();
+}
+
+function unwrapRelayControlPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (payload.payload && typeof payload.payload === 'object') {
+    const nested = payload.payload as Record<string, unknown>;
+    const { payload: _ignored, ...outer } = payload;
+    return { ...outer, ...nested };
+  }
+  return payload;
+}
+
+function trimToUndefined(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}

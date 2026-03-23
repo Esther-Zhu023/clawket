@@ -1,0 +1,114 @@
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+function resolveToolDetail(name: string, args?: unknown): string | undefined {
+  if (!args || typeof args !== 'object') return undefined;
+  const a = args as Record<string, unknown>;
+  const lowerName = name.toLowerCase();
+
+  let detail: string | undefined;
+  if (lowerName === 'exec' || lowerName === 'bash') {
+    detail = typeof a.command === 'string' ? a.command : undefined;
+  } else if (lowerName === 'read' || lowerName === 'write' || lowerName === 'edit') {
+    detail = typeof a.path === 'string'
+      ? a.path
+      : typeof a.file_path === 'string'
+        ? a.file_path
+        : undefined;
+  } else if (lowerName === 'web_search') {
+    detail = typeof a.query === 'string' ? a.query : undefined;
+  } else if (lowerName === 'web_fetch') {
+    detail = typeof a.url === 'string' ? a.url : undefined;
+  } else if (lowerName === 'browser' || lowerName === 'message') {
+    detail = typeof a.action === 'string' ? a.action : undefined;
+  } else {
+    for (const key of ['path', 'file_path', 'command', 'query', 'url', 'action', 'name']) {
+      if (typeof a[key] === 'string') {
+        detail = a[key] as string;
+        break;
+      }
+    }
+  }
+
+  if (!detail) return undefined;
+  return detail
+    .replace(/^\/Users\/[^/]+\//, '~/')
+    .replace(/^\/home\/[^/]+\//, '~/');
+}
+
+function withTrimmedDetail(base: string, detail?: string): string {
+  if (!detail) return base;
+  const clipped = detail.length > 60 ? `${detail.slice(0, 57)}...` : detail;
+  return `${base} ${clipped}`;
+}
+
+export function formatToolDisplayName(name: string, t?: Translate): string {
+  const plain = name.replace(/_/g, ' ');
+  if (!t) return plain;
+  const lower = name.toLowerCase();
+  if (lower === 'exec' || lower === 'bash') return t('Command');
+  if (lower === 'read') return t('Read file');
+  if (lower === 'write' || lower === 'edit') return t('Write file');
+  if (lower === 'web_search') return t('Web Search');
+  if (lower === 'web_fetch') return t('Web Fetch');
+  if (lower === 'browser') return t('Browse');
+  if (lower === 'message') return t('Message');
+  return plain;
+}
+
+/**
+ * Map a tool name to a short human-readable activity phrase for the header.
+ * Returns a localized label like "Running command" or "Reading file".
+ */
+export function formatToolActivity(
+  name: string,
+  t: Translate,
+): string {
+  const lower = name.toLowerCase();
+  if (lower === 'exec' || lower === 'bash') return t('Running command');
+  if (lower === 'read') return t('Reading file');
+  if (lower === 'write' || lower === 'edit') return t('Writing file');
+  if (lower === 'web_search') return t('Searching web');
+  if (lower === 'web_fetch') return t('Web fetching');
+  if (lower === 'browser') return t('Browsing');
+  if (lower === 'message') return t('Messaging');
+  return t('Using {{toolName}}', { toolName: name });
+}
+
+/** Strip status wrapper (Running/Failed/Completed) from a tool summary. */
+export function stripToolStatusPrefix(summary: string, t?: Translate): string {
+  const trimmed = summary.trim();
+  // Always try English prefixes first (legacy/cached summaries)
+  const englishStripped = trimmed.replace(/^(Running|Failed|Completed)\s+/i, '');
+  if (englishStripped !== trimmed) return englishStripped;
+  if (!t) return trimmed;
+  // Try stripping localized status wrappers by rendering a placeholder
+  // through the template and removing the surrounding text.
+  const placeholder = '\x00';
+  for (const key of ['Running {{name}}', 'Failed {{name}}', 'Completed {{name}}']) {
+    const wrapped = t(key, { name: placeholder });
+    const idx = wrapped.indexOf(placeholder);
+    if (idx < 0) continue;
+    const before = wrapped.slice(0, idx);
+    const after = wrapped.slice(idx + placeholder.length);
+    const matchesBefore = !before || trimmed.startsWith(before);
+    const matchesAfter = !after || trimmed.endsWith(after);
+    if (matchesBefore && matchesAfter) {
+      const start = before.length;
+      const end = after ? trimmed.length - after.length : trimmed.length;
+      if (start < end) return trimmed.slice(start, end).trim();
+    }
+  }
+  return trimmed;
+}
+
+/**
+ * Format a one-line tool summary for display.
+ */
+export function formatToolOneLiner(name: string, args?: unknown): string {
+  return withTrimmedDetail(formatToolDisplayName(name), resolveToolDetail(name, args));
+}
+
+/** Format a one-line tool summary with localized known tool labels. */
+export function formatToolOneLinerLocalized(name: string, args: unknown, t: Translate): string {
+  return withTrimmedDetail(formatToolDisplayName(name, t), resolveToolDetail(name, args));
+}

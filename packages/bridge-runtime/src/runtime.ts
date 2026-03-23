@@ -1,0 +1,1146 @@
+import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
+import type { PairingConfig } from '@clawket/bridge-core';
+import WebSocket, { type RawData } from 'ws';
+import {
+  issueOpenClawBootstrapToken,
+  readOpenClawInfo,
+  type OpenClawInfo,
+} from './openclaw.js';
+import {
+  isConnectHandshakeRequest,
+  parseConnectHandshakeMeta,
+  parseConnectStartIdentity,
+  parseControl,
+  parsePairingRequestFromError,
+  parsePairResolvedEvent,
+  parseResponseEnvelopeMeta,
+  type PendingPairRequest,
+} from './protocol.js';
+
+type PendingGatewayMessage =
+  | { kind: 'text'; text: string }
+  | { kind: 'binary'; data: Buffer };
+
+type PendingGatewayMessageSummary = {
+  total: number;
+  connectRequests: number;
+  otherText: number;
+  binary: number;
+};
+
+type InFlightConnectHandshake = {
+  method: 'connect' | 'connect.start';
+  startedAtMs: number;
+  slowWarningLogged: boolean;
+};
+
+export type ConnectedDevice = {
+  id: string;
+  label: string;
+  state: 'connected' | 'recent';
+  lastSeenMs: number;
+};
+
+export type BridgeRuntimeSnapshot = {
+  running: boolean;
+  relayConnected: boolean;
+  gatewayConnected: boolean;
+  gatewayId: string;
+  instanceId: string;
+  relayUrl: string;
+  gatewayUrl: string;
+  clientCount: number;
+  connectedDevices: ConnectedDevice[];
+  pendingPairRequests: PendingPairRequest[];
+  lastError: string | null;
+  lastUpdatedMs: number;
+};
+
+export type BridgeRuntimeOptions = {
+  config: PairingConfig;
+  gatewayUrl: string;
+  reconnectBaseDelayMs?: number;
+  reconnectMaxDelayMs?: number;
+  gatewayRetryDelayMs?: number;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
+  connectHandshakeWarnDelayMs?: number;
+  createWebSocket?: (url: string, options?: RuntimeSocketConnectOptions) => RuntimeSocket;
+  onStatus?: (snapshot: BridgeRuntimeSnapshot) => void;
+  onLog?: (line: string) => void;
+  onPendingPairRequest?: (request: PendingPairRequest) => void;
+};
+
+type RuntimeSocket = Pick<
+  WebSocket,
+  'readyState' | 'send' | 'close' | 'terminate' | 'ping' | 'on' | 'once'
+>;
+
+type RuntimeSocketConnectOptions = {
+  headers?: Record<string, string>;
+  maxPayload?: number;
+};
+
+const HEARTBEAT_INTERVAL_MS = 10_000;
+const HEARTBEAT_TIMEOUT_MS = 35_000;
+const GATEWAY_RETRY_DELAY_MS = 1_200;
+const RECONNECT_BASE_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 15_000;
+const CONNECT_HANDSHAKE_WARN_DELAY_MS = 8_000;
+const MAX_PENDING_GATEWAY_MESSAGES = 256;
+const MAX_DEVICE_DETAILS = 32;
+const MAX_PENDING_PAIR_REQUESTS = 16;
+
+export class BridgeRuntime {
+  private relaySocket: RuntimeSocket | null = null;
+  private gatewaySocket: RuntimeSocket | null = null;
+  private relayConnecting = false;
+  private gatewayConnecting = false;
+  private stopped = true;
+  private relayAttempt = 0;
+  private lastRelayActivityMs = 0;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private gatewayRetryTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private pendingGatewayMessages: PendingGatewayMessage[] = [];
+  private gatewayHandshakeStarted = false;
+  private gatewayCloseBoundaryPending = false;
+  private clientDemandStartedAtMs: number | null = null;
+  private gatewayConnectedAtMs: number | null = null;
+  private readonly inFlightConnectHandshakes = new Map<string, InFlightConnectHandshake>();
+  private readonly snapshot: BridgeRuntimeSnapshot;
+
+  constructor(private readonly options: BridgeRuntimeOptions) {
+    this.snapshot = {
+      running: false,
+      relayConnected: false,
+      gatewayConnected: false,
+      gatewayId: options.config.gatewayId,
+      instanceId: options.config.instanceId,
+      relayUrl: options.config.relayUrl,
+      gatewayUrl: options.gatewayUrl,
+      clientCount: 0,
+      connectedDevices: [],
+      pendingPairRequests: [],
+      lastError: null,
+      lastUpdatedMs: Date.now(),
+    };
+  }
+
+  start(): void {
+    if (!this.stopped) return;
+    this.stopped = false;
+    this.updateSnapshot({ running: true, gatewayUrl: this.options.gatewayUrl });
+    this.log(
+      `runtime starting gatewayId=${this.options.config.gatewayId} ` +
+      `instanceId=${this.options.config.instanceId} ` +
+      `gatewayUrl=${redactGatewayWsUrl(this.options.gatewayUrl)}`,
+    );
+    void this.connectRelay();
+  }
+
+  async stop(): Promise<void> {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.clearTimers();
+    this.relaySocket?.close();
+    this.gatewaySocket?.close();
+    this.relaySocket = null;
+    this.gatewaySocket = null;
+    this.pendingGatewayMessages = [];
+    this.gatewayHandshakeStarted = false;
+    this.gatewayCloseBoundaryPending = false;
+    this.clientDemandStartedAtMs = null;
+    this.gatewayConnectedAtMs = null;
+    this.inFlightConnectHandshakes.clear();
+    this.relayConnecting = false;
+    this.gatewayConnecting = false;
+    this.updateSnapshot({
+      running: false,
+      relayConnected: false,
+      gatewayConnected: false,
+      clientCount: 0,
+      lastError: null,
+    });
+    this.log('runtime stopped');
+    await delay(25);
+  }
+
+  async approvePairRequest(requestId: string): Promise<void> {
+    this.sendGatewayRequest('device.pair.approve', { requestId });
+    this.markPairRequestResolved(requestId, 'approved');
+  }
+
+  async rejectPairRequest(requestId: string): Promise<void> {
+    this.sendGatewayRequest('device.pair.reject', { requestId });
+    this.markPairRequestResolved(requestId, 'rejected');
+  }
+
+  getSnapshot(): BridgeRuntimeSnapshot {
+    return {
+      ...this.snapshot,
+      connectedDevices: [...this.snapshot.connectedDevices],
+      pendingPairRequests: [...this.snapshot.pendingPairRequests],
+    };
+  }
+
+  private async connectRelay(): Promise<void> {
+    if (this.stopped || this.relayConnecting || this.isRelayOpen()) return;
+    this.relayConnecting = true;
+    this.relayAttempt += 1;
+    const attempt = this.relayAttempt;
+    const relayUrl = buildRelayWsUrl(this.options.config);
+    const relayHeaders = buildRelayWsHeaders(this.options.config);
+    this.log(
+      `relay connect attempt=${attempt} url=${redactRelayWsUrl(relayUrl)} ` +
+      `authorization=${redactAuthorizationHeader(relayHeaders.Authorization)}`,
+    );
+    const relay = this.createWebSocket(relayUrl, {
+      headers: relayHeaders,
+      maxPayload: 25 * 1024 * 1024,
+    });
+    this.relaySocket = relay;
+
+    relay.once('open', () => {
+      if (this.stopped || this.relaySocket !== relay) {
+        relay.close();
+        return;
+      }
+      this.relayConnecting = false;
+      this.lastRelayActivityMs = Date.now();
+      this.updateSnapshot({ relayConnected: true, lastError: null });
+      this.log(`relay connected attempt=${attempt}`);
+      this.startHeartbeat();
+      if (shouldKeepGatewayConnected(this.snapshot.clientCount, summarizePendingGatewayMessages(this.pendingGatewayMessages).connectRequests)) {
+        this.ensureGatewayConnected();
+      }
+    });
+
+    relay.on('message', (data: RawData, isBinary: boolean) => {
+      void this.handleRelayMessage(data, isBinary);
+    });
+
+    relay.on('pong', () => {
+      this.lastRelayActivityMs = Date.now();
+    });
+
+    relay.once('error', (error: Error) => {
+      this.log(`relay error: ${String(error)}`);
+    });
+
+    relay.once('close', (code: number, reason: Buffer) => {
+      if (this.relaySocket === relay) {
+        this.relaySocket = null;
+      }
+      this.relayConnecting = false;
+      this.stopHeartbeat();
+      this.clientDemandStartedAtMs = null;
+      this.gatewayConnectedAtMs = null;
+      this.updateSnapshot({
+        relayConnected: false,
+        gatewayConnected: false,
+        clientCount: 0,
+        lastError: code === 1000 ? null : `relay closed: ${reason.toString() || code}`,
+      });
+      this.log(`relay disconnected code=${code} reason=${reason.toString() || '<none>'}`);
+      this.closeGateway();
+      this.scheduleRelayReconnect();
+    });
+  }
+
+  private async handleRelayMessage(data: RawData, isBinary: boolean): Promise<void> {
+    this.lastRelayActivityMs = Date.now();
+    if (isBinary) {
+      this.forwardOrQueueGatewayMessage({ kind: 'binary', data: normalizeBinary(data) });
+      return;
+    }
+    const text = normalizeText(data);
+    if (text == null) return;
+    const control = parseControl(text);
+    if (control) {
+      await this.handleRelayControl(control);
+      return;
+    }
+    const identity = parseConnectStartIdentity(text);
+    if (identity) {
+      this.observeConnectStart(identity.id, identity.label);
+    }
+    this.forwardOrQueueGatewayMessage({ kind: 'text', text });
+  }
+
+  private async handleRelayControl(control: {
+    event: string;
+    requestId?: string;
+    payload?: Record<string, unknown>;
+    sourceClientId?: string;
+    targetClientId?: string;
+    count?: number;
+  }): Promise<void> {
+    if (control.event === 'bootstrap.request') {
+      await this.handleBootstrapRequest(control);
+      return;
+    }
+
+    const { event, count } = control;
+    if (event === 'client_connected' || event === 'client_count') {
+      const previousClientCount = this.snapshot.clientCount;
+      const clientCount = count ?? Math.max(1, this.snapshot.clientCount);
+      if (clientCount > 0 && this.clientDemandStartedAtMs == null) {
+        this.clientDemandStartedAtMs = Date.now();
+      }
+      this.updateSnapshot({ clientCount });
+      if (clientCount === 0) {
+        this.gatewayHandshakeStarted = false;
+        this.markDevicesRecent();
+        this.dropStaleIdleGatewayQueue();
+        const queuedConnectRequests = summarizePendingGatewayMessages(this.pendingGatewayMessages).connectRequests;
+        if (shouldScheduleGatewayIdleClose(clientCount, queuedConnectRequests, this.isGatewayOpen())) {
+          this.log('client demand dropped to zero; closing idle gateway');
+          this.closeGateway();
+        } else {
+          this.log('client demand dropped to zero; gateway remains needed');
+        }
+      } else {
+        if (shouldRecycleGatewayForFreshClient(previousClientCount, clientCount, this.isGatewayOpen(), false)) {
+          const queued = summarizePendingGatewayMessages(this.pendingGatewayMessages);
+          this.log(
+            `gateway recycle requested for fresh client demand queued=${queued.total} ` +
+            `connect=${queued.connectRequests} text=${queued.otherText} binary=${queued.binary} ` +
+            `handshakeStarted=${this.gatewayHandshakeStarted}`,
+          );
+          const pruned = prunePendingGatewayMessagesForFreshDemand(this.pendingGatewayMessages);
+          if (pruned.dropped > 0) {
+            this.pendingGatewayMessages = pruned.messages;
+            this.log(
+              `dropped stale gateway queue before recycle dropped=${pruned.dropped} ` +
+              `kept=${pruned.messages.length}`,
+            );
+          }
+          this.closeGateway(true);
+        }
+        if (this.isGatewayOpen() && !this.gatewayCloseBoundaryPending) {
+          this.updateSnapshot({ gatewayConnected: true, lastError: null });
+          this.log(`gateway already connected sinceGatewayOpenMs=${this.elapsedSince(this.gatewayConnectedAtMs)} handshakeStarted=${this.gatewayHandshakeStarted}`);
+        }
+      }
+      this.ensureGatewayConnected();
+      return;
+    }
+    if (event === 'client_disconnected') {
+      this.gatewayHandshakeStarted = false;
+      this.updateSnapshot({ clientCount: 0 });
+      this.markDevicesRecent();
+      this.dropStaleIdleGatewayQueue();
+      const queuedConnectRequests = summarizePendingGatewayMessages(this.pendingGatewayMessages).connectRequests;
+      if (shouldScheduleGatewayIdleClose(0, queuedConnectRequests, this.isGatewayOpen())) {
+        this.log('client disconnected; closing idle gateway');
+        this.closeGateway();
+      } else {
+        this.log('client disconnected; gateway remains needed');
+        this.ensureGatewayConnected();
+      }
+      return;
+    }
+  }
+
+  private async handleBootstrapRequest(control: {
+    requestId?: string;
+    payload?: Record<string, unknown>;
+    sourceClientId?: string;
+    targetClientId?: string;
+  }): Promise<void> {
+    const requestId = control.requestId?.trim() ?? '';
+    const replyTargetClientId = control.sourceClientId?.trim() || control.targetClientId?.trim() || '';
+    if (!requestId) {
+      this.log('relay bootstrap request dropped reason=missing_request_id');
+      return;
+    }
+
+    const parsed = parseBootstrapRequestPayload(control.payload);
+    if (!parsed.ok) {
+      this.log(`relay bootstrap request rejected requestId=${requestId} code=${parsed.code} reason=${parsed.message}`);
+      this.sendRelayControl({
+        event: 'bootstrap.error',
+        requestId,
+        targetClientId: replyTargetClientId || undefined,
+        payload: {
+          code: parsed.code,
+          message: parsed.message,
+        },
+      });
+      return;
+    }
+
+    try {
+      const issued = await issueOpenClawBootstrapToken(parsed.value);
+      this.log(
+        `relay bootstrap token issued requestId=${requestId} targetClientId=${replyTargetClientId || '<none>'} ` +
+        `expiresAtMs=${issued.expiresAtMs}`,
+      );
+      this.sendRelayControl({
+        event: 'bootstrap.issued',
+        requestId,
+        targetClientId: replyTargetClientId || undefined,
+        payload: {
+          bootstrapToken: issued.token,
+          expiresAtMs: issued.expiresAtMs,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`relay bootstrap token issue failed requestId=${requestId} error=${message}`);
+      this.sendRelayControl({
+        event: 'bootstrap.error',
+        requestId,
+        targetClientId: replyTargetClientId || undefined,
+        payload: {
+          code: 'bootstrap_issue_failed',
+          message,
+        },
+      });
+    }
+  }
+
+  private forwardOrQueueGatewayMessage(message: PendingGatewayMessage): void {
+    const isConnectHandshake = message.kind === 'text' && isConnectHandshakeRequest(message.text);
+    if (this.gatewayCloseBoundaryPending) {
+      this.pushPendingGatewayMessage(message);
+      if (isConnectHandshake) {
+        this.log('gateway unavailable during connect handshake; queued until gateway reconnects');
+      }
+      return;
+    }
+    const gateway = this.gatewaySocket;
+    if (!gateway || gateway.readyState !== WebSocket.OPEN) {
+      this.ensureGatewayConnected();
+      this.pushPendingGatewayMessage(message);
+      if (isConnectHandshake) {
+        this.log('gateway unavailable during connect handshake; queued until gateway reconnects');
+      }
+      return;
+    }
+    if (!this.gatewayHandshakeStarted) {
+      if (!isConnectHandshake) {
+        this.pushPendingGatewayMessage(message);
+        return;
+      }
+      this.gatewayHandshakeStarted = true;
+      const meta = parseConnectHandshakeMeta(message.text);
+      this.log(
+        `gateway handshake started queued=${this.pendingGatewayMessages.length}` +
+        formatConnectHandshakeMetaForLog(meta),
+      );
+    }
+    this.sendToGateway(message);
+  }
+
+  private ensureGatewayConnected(): void {
+    if (
+      this.stopped
+      || !this.isRelayOpen()
+      || this.gatewayConnecting
+      || this.isGatewayOpen()
+      || this.gatewayCloseBoundaryPending
+    ) return;
+    this.gatewayConnecting = true;
+    this.log(`gateway connect start url=${redactGatewayWsUrl(this.options.gatewayUrl)}`);
+    const gateway = this.createWebSocket(this.options.gatewayUrl);
+    this.gatewaySocket = gateway;
+
+    gateway.once('open', () => {
+      if (this.stopped || this.gatewaySocket !== gateway) {
+        gateway.close();
+        return;
+      }
+      this.gatewayConnecting = false;
+      this.gatewayHandshakeStarted = false;
+      this.gatewayCloseBoundaryPending = false;
+      this.gatewayConnectedAtMs = Date.now();
+      this.updateSnapshot({ gatewayConnected: true, lastError: null });
+      this.log(`gateway connected sinceClientDemandMs=${this.elapsedSince(this.clientDemandStartedAtMs)}`);
+      this.flushPendingGatewayMessages();
+    });
+
+    gateway.on('message', (data: RawData, isBinary: boolean) => {
+      this.handleGatewayMessage(data, isBinary);
+    });
+
+    gateway.once('error', (error: Error) => {
+      this.log(`gateway error: ${String(error)}`);
+    });
+
+    gateway.once('close', (code: number, reason: Buffer) => {
+      const queuedConnectRequests = summarizePendingGatewayMessages(this.pendingGatewayMessages).connectRequests;
+      const reconnectAfterClose = this.gatewayCloseBoundaryPending
+        && shouldKeepGatewayConnected(this.snapshot.clientCount, queuedConnectRequests);
+      if (this.gatewaySocket === gateway) {
+        this.gatewaySocket = null;
+      }
+      this.gatewayConnecting = false;
+      this.gatewayHandshakeStarted = false;
+      this.gatewayCloseBoundaryPending = false;
+      this.gatewayConnectedAtMs = null;
+      this.clearInFlightConnectHandshakes(`gateway disconnected code=${code}`);
+      this.updateSnapshot({
+        gatewayConnected: false,
+        lastError: code === 1000 || reconnectAfterClose
+          ? this.snapshot.lastError
+          : `gateway closed: ${reason.toString() || code}`,
+      });
+      this.log(`gateway disconnected code=${code} reason=${reason.toString() || '<none>'} sinceClientDemandMs=${this.elapsedSince(this.clientDemandStartedAtMs)}`);
+      if (reconnectAfterClose) {
+        this.log('gateway close boundary reached; reconnecting for fresh demand');
+        this.ensureGatewayConnected();
+        return;
+      }
+      this.scheduleGatewayReconnect();
+    });
+  }
+
+  private handleGatewayMessage(data: RawData, isBinary: boolean): void {
+    const relay = this.relaySocket;
+    if (!relay || relay.readyState !== WebSocket.OPEN) return;
+    if (isBinary) {
+      relay.send(normalizeBinary(data));
+      return;
+    }
+    const text = normalizeText(data);
+    if (text == null) return;
+    const pairReq = parsePairingRequestFromError(text);
+    if (pairReq) {
+      this.addPendingPairRequest(pairReq);
+    }
+    const resolved = parsePairResolvedEvent(text);
+    if (resolved) {
+      this.markPairRequestResolved(resolved.requestId, resolved.decision);
+    }
+    const response = parseResponseEnvelopeMeta(text);
+    if (response) {
+      this.observeGatewayResponse(response);
+    }
+    relay.send(text);
+  }
+
+  private flushPendingGatewayMessages(): void {
+    const gateway = this.gatewaySocket;
+    if (!gateway || gateway.readyState !== WebSocket.OPEN) return;
+    const deferred: PendingGatewayMessage[] = [];
+    const queued = dedupePendingGatewayMessages(this.pendingGatewayMessages);
+    if (queued.dropped > 0) {
+      this.log(`dropped stale queued gateway messages before flush dropped=${queued.dropped} kept=${queued.messages.length}`);
+    }
+    this.pendingGatewayMessages = [];
+    for (const message of queued.messages) {
+      if (!this.gatewayHandshakeStarted) {
+        if (message.kind !== 'text' || !isConnectHandshakeRequest(message.text)) {
+          deferred.push(message);
+          continue;
+        }
+        this.gatewayHandshakeStarted = true;
+      }
+      this.sendToGateway(message);
+    }
+    this.pendingGatewayMessages = deferred;
+  }
+
+  private sendToGateway(message: PendingGatewayMessage): void {
+    const gateway = this.gatewaySocket;
+    if (!gateway || gateway.readyState !== WebSocket.OPEN) {
+      this.pushPendingGatewayMessage(message);
+      return;
+    }
+    if (message.kind === 'text') {
+      const patched = patchConnectRequestGatewayAuth(message.text, readOpenClawInfo());
+      const meta = parseConnectHandshakeMeta(patched.text);
+      if (meta) {
+        if (meta.id) {
+          this.inFlightConnectHandshakes.set(meta.id, {
+            method: meta.method,
+            startedAtMs: Date.now(),
+            slowWarningLogged: false,
+          });
+        }
+        this.log(`gateway connect request forwarded${formatConnectHandshakeMetaForLog(meta)}`);
+      }
+      if (patched.injected) {
+        this.log('gateway connect auth patched mode=password');
+      }
+      gateway.send(patched.text);
+      return;
+    }
+    gateway.send(message.data);
+  }
+
+  private sendGatewayRequest(method: string, params: Record<string, unknown>): void {
+    const payload = JSON.stringify({
+      type: 'req',
+      id: `bridge-${randomUUID()}`,
+      method,
+      params,
+    });
+    this.forwardOrQueueGatewayMessage({ kind: 'text', text: payload });
+  }
+
+  private sendRelayControl(control: {
+    event: string;
+    requestId?: string;
+    targetClientId?: string;
+    payload?: Record<string, unknown>;
+  }): void {
+    const relay = this.relaySocket;
+    if (!relay || relay.readyState !== WebSocket.OPEN) return;
+    relay.send(`__clawket_relay_control__:${JSON.stringify({
+      type: 'control',
+      event: control.event,
+      requestId: control.requestId,
+      targetClientId: control.targetClientId,
+      payload: control.payload,
+    })}`);
+  }
+
+  private closeGateway(reconnectAfterClose = false): void {
+    if (this.gatewayRetryTimer) {
+      clearTimeout(this.gatewayRetryTimer);
+      this.gatewayRetryTimer = null;
+    }
+    const queuedConnectRequests = summarizePendingGatewayMessages(this.pendingGatewayMessages).connectRequests;
+    const shouldReconnectAfterClose = reconnectAfterClose
+      && this.isRelayOpen()
+      && shouldKeepGatewayConnected(this.snapshot.clientCount, queuedConnectRequests);
+    const gateway = this.gatewaySocket;
+    this.gatewayHandshakeStarted = false;
+    this.gatewayConnectedAtMs = null;
+    if (!gateway) {
+      this.gatewayCloseBoundaryPending = false;
+      this.gatewayConnecting = false;
+      if (shouldReconnectAfterClose) {
+        this.ensureGatewayConnected();
+      }
+      return;
+    }
+    if (gateway.readyState === WebSocket.CLOSING) {
+      this.gatewayCloseBoundaryPending = shouldReconnectAfterClose;
+      return;
+    }
+    if (gateway.readyState === WebSocket.CLOSED) {
+      if (this.gatewaySocket === gateway) {
+        this.gatewaySocket = null;
+      }
+      this.gatewayCloseBoundaryPending = false;
+      this.gatewayConnecting = false;
+      if (shouldReconnectAfterClose) {
+        this.ensureGatewayConnected();
+      }
+      return;
+    }
+    this.gatewayCloseBoundaryPending = shouldReconnectAfterClose;
+    gateway.close();
+  }
+
+  private createWebSocket(url: string, options?: RuntimeSocketConnectOptions): RuntimeSocket {
+    if (this.options.createWebSocket) {
+      return this.options.createWebSocket(url, options);
+    }
+    return new WebSocket(url, {
+      maxPayload: options?.maxPayload ?? 25 * 1024 * 1024,
+      headers: options?.headers,
+    });
+  }
+
+  private observeGatewayResponse(response: { id: string; ok: boolean; errorCode: string | null; errorMessage: string | null }): void {
+    const pending = this.inFlightConnectHandshakes.get(response.id);
+    if (!pending) return;
+    this.inFlightConnectHandshakes.delete(response.id);
+    const detail = response.ok
+      ? 'ok=true'
+      : `ok=false errorCode=${response.errorCode ?? '<none>'} errorMessage=${response.errorMessage ?? '<none>'}`;
+    this.log(
+      `gateway connect response reqId=<redacted> method=${pending.method} elapsedMs=${Date.now() - pending.startedAtMs} ${detail}`,
+    );
+  }
+
+  private clearInFlightConnectHandshakes(reason: string): void {
+    if (this.inFlightConnectHandshakes.size === 0) return;
+    for (const [requestId, pending] of this.inFlightConnectHandshakes.entries()) {
+      this.log(
+        `gateway connect response missing reqId=<redacted> method=${pending.method} elapsedMs=${Date.now() - pending.startedAtMs} reason=${reason}`,
+      );
+    }
+    this.inFlightConnectHandshakes.clear();
+  }
+
+  private scheduleRelayReconnect(): void {
+    if (this.stopped || this.reconnectTimer) return;
+    const base = this.options.reconnectBaseDelayMs ?? RECONNECT_BASE_DELAY_MS;
+    const max = this.options.reconnectMaxDelayMs ?? RECONNECT_MAX_DELAY_MS;
+    const delayMs = Math.min(max, base * Math.max(1, this.relayAttempt));
+    this.log(`relay reconnect scheduled delayMs=${delayMs}`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connectRelay();
+    }, delayMs);
+  }
+
+  private scheduleGatewayReconnect(): void {
+    const queuedConnectRequests = summarizePendingGatewayMessages(this.pendingGatewayMessages).connectRequests;
+    if (
+      this.stopped
+      || this.gatewayRetryTimer
+      || !this.isRelayOpen()
+      || !shouldKeepGatewayConnected(this.snapshot.clientCount, queuedConnectRequests)
+    ) return;
+    const delayMs = this.options.gatewayRetryDelayMs ?? GATEWAY_RETRY_DELAY_MS;
+    this.gatewayRetryTimer = setTimeout(() => {
+      this.gatewayRetryTimer = null;
+      this.ensureGatewayConnected();
+    }, delayMs);
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      const relay = this.relaySocket;
+      if (!relay || relay.readyState !== WebSocket.OPEN) return;
+      this.logSlowConnectHandshakes();
+      const timeoutMs = this.options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
+      if (Date.now() - this.lastRelayActivityMs > timeoutMs) {
+        this.log('relay heartbeat timed out');
+        relay.terminate();
+        return;
+      }
+      relay.ping();
+    }, this.options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private logSlowConnectHandshakes(): void {
+    if (this.inFlightConnectHandshakes.size === 0) return;
+    const warnDelayMs = this.options.connectHandshakeWarnDelayMs ?? CONNECT_HANDSHAKE_WARN_DELAY_MS;
+    const now = Date.now();
+    for (const [requestId, pending] of this.inFlightConnectHandshakes.entries()) {
+      const elapsedMs = now - pending.startedAtMs;
+      if (pending.slowWarningLogged || elapsedMs < warnDelayMs) continue;
+      pending.slowWarningLogged = true;
+      this.log(
+        `gateway connect still pending reqId=<redacted> method=${pending.method} elapsedMs=${elapsedMs}`,
+      );
+    }
+  }
+
+  private pushPendingGatewayMessage(message: PendingGatewayMessage): void {
+    if (this.pendingGatewayMessages.length >= MAX_PENDING_GATEWAY_MESSAGES) {
+      this.pendingGatewayMessages.shift();
+    }
+    this.pendingGatewayMessages.push(message);
+  }
+
+  private dropStaleIdleGatewayQueue(): void {
+    const queued = summarizePendingGatewayMessages(this.pendingGatewayMessages);
+    if (queued.total === 0 || queued.connectRequests > 0) return;
+    this.pendingGatewayMessages = [];
+    this.log(
+      `dropped stale idle gateway queue total=${queued.total} ` +
+      `text=${queued.otherText} binary=${queued.binary}`,
+    );
+  }
+
+  private observeConnectStart(id: string, label: string): void {
+    const now = Date.now();
+    const map = new Map(this.snapshot.connectedDevices.map((item) => [item.id, { ...item }]));
+    const existing = map.get(id) ?? {
+      id,
+      label,
+      state: 'connected' as const,
+      lastSeenMs: now,
+    };
+    existing.label = label;
+    existing.state = 'connected';
+    existing.lastSeenMs = now;
+    map.set(id, existing);
+    const connectedDevices = [...map.values()]
+      .sort((a, b) => b.lastSeenMs - a.lastSeenMs)
+      .slice(0, MAX_DEVICE_DETAILS);
+    this.updateSnapshot({ connectedDevices });
+  }
+
+  private markDevicesRecent(): void {
+    this.updateSnapshot({
+      connectedDevices: this.snapshot.connectedDevices.map((item) => ({
+        ...item,
+        state: 'recent',
+      })),
+    });
+  }
+
+  private addPendingPairRequest(request: PendingPairRequest): void {
+    if (this.snapshot.pendingPairRequests.some((item) => item.requestId === request.requestId)) return;
+    const next = [...this.snapshot.pendingPairRequests, request].slice(-MAX_PENDING_PAIR_REQUESTS);
+    this.updateSnapshot({ pendingPairRequests: next });
+    this.options.onPendingPairRequest?.(request);
+    this.log(`pair request pending requestId=${request.requestId} deviceId=${request.deviceId || '<unknown>'}`);
+  }
+
+  private markPairRequestResolved(requestId: string, decision: 'approved' | 'rejected' | 'unknown'): void {
+    const next = this.snapshot.pendingPairRequests.map((item) => (
+      item.requestId === requestId
+        ? { ...item, status: decision === 'approved' || decision === 'rejected' ? decision : item.status }
+        : item
+    ));
+    this.updateSnapshot({ pendingPairRequests: next });
+    this.log(`pair request resolved requestId=${requestId} decision=${decision}`);
+  }
+
+  private updateSnapshot(patch: Partial<BridgeRuntimeSnapshot>): void {
+    Object.assign(this.snapshot, patch, { lastUpdatedMs: Date.now() });
+    this.options.onStatus?.(this.getSnapshot());
+  }
+
+  private log(line: string): void {
+    this.options.onLog?.(sanitizeRuntimeLogLine(line));
+  }
+
+  private isRelayOpen(): boolean {
+    return this.relaySocket?.readyState === WebSocket.OPEN;
+  }
+
+  private isGatewayOpen(): boolean {
+    return this.gatewaySocket?.readyState === WebSocket.OPEN;
+  }
+
+  private clearTimers(): void {
+    this.stopHeartbeat();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.gatewayRetryTimer) {
+      clearTimeout(this.gatewayRetryTimer);
+      this.gatewayRetryTimer = null;
+    }
+  }
+
+  private elapsedSince(startedAtMs: number | null): number | null {
+    return startedAtMs == null ? null : Math.max(0, Date.now() - startedAtMs);
+  }
+}
+
+// Gateway lifecycle contract:
+// 1. Open the local Gateway socket only while Relay has active client demand
+//    or the bridge has queued connect handshakes to flush after a reconnect.
+// 2. Close idle Gateway sockets once client demand drops to zero and there is
+//    no queued work left to preserve.
+// 3. When fresh client demand returns after an idle gap, recycle any still-open
+//    Gateway socket so the next proxied connect handshake lands on a clean
+//    OpenClaw session boundary.
+// 4. While Gateway is reopening, keep proxied connect frames queued instead of
+//    dropping them.
+export function shouldKeepGatewayConnected(clientCount: number, pendingConnectRequests: number): boolean {
+  return clientCount > 0 || pendingConnectRequests > 0;
+}
+
+export function shouldScheduleGatewayIdleClose(
+  clientCount: number,
+  pendingConnectRequests: number,
+  gatewayConnected: boolean,
+): boolean {
+  return gatewayConnected && !shouldKeepGatewayConnected(clientCount, pendingConnectRequests);
+}
+
+export function shouldRecycleGatewayForFreshClient(
+  previousClientCount: number,
+  nextClientCount: number,
+  gatewayConnected: boolean,
+  hadPendingIdleClose: boolean,
+): boolean {
+  return gatewayConnected && nextClientCount > 0 && (previousClientCount === 0 || hadPendingIdleClose);
+}
+
+export function shouldDropStaleConnectAfterGatewayReopen(
+  gatewayConnected: boolean,
+  isConnectHandshake: boolean,
+): boolean {
+  return false;
+}
+
+export function summarizePendingGatewayMessages(messages: PendingGatewayMessage[]): PendingGatewayMessageSummary {
+  const summary: PendingGatewayMessageSummary = {
+    total: messages.length,
+    connectRequests: 0,
+    otherText: 0,
+    binary: 0,
+  };
+
+  for (const message of messages) {
+    if (message.kind === 'binary') {
+      summary.binary += 1;
+      continue;
+    }
+    if (isConnectHandshakeRequest(message.text)) {
+      summary.connectRequests += 1;
+      continue;
+    }
+    summary.otherText += 1;
+  }
+
+  return summary;
+}
+
+export function dedupePendingGatewayMessages(messages: PendingGatewayMessage[]): {
+  messages: PendingGatewayMessage[];
+  dropped: number;
+} {
+  let latestConnectIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind === 'text' && isConnectHandshakeRequest(message.text)) {
+      latestConnectIndex = index;
+      break;
+    }
+  }
+
+  if (latestConnectIndex <= 0) {
+    return { messages: [...messages], dropped: 0 };
+  }
+
+  const deduped = messages.filter((message, index) => (
+    index >= latestConnectIndex || (message.kind !== 'text' || !isConnectHandshakeRequest(message.text))
+  ));
+
+  return {
+    messages: deduped,
+    dropped: messages.length - deduped.length,
+  };
+}
+
+export function prunePendingGatewayMessagesForFreshDemand(messages: PendingGatewayMessage[]): {
+  messages: PendingGatewayMessage[];
+  dropped: number;
+} {
+  if (messages.length === 0) {
+    return { messages: [], dropped: 0 };
+  }
+
+  let latestConnectIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind === 'text' && isConnectHandshakeRequest(message.text)) {
+      latestConnectIndex = index;
+      break;
+    }
+  }
+
+  if (latestConnectIndex === -1) {
+    return { messages: [], dropped: messages.length };
+  }
+
+  const kept = messages.slice(latestConnectIndex);
+  return {
+    messages: kept,
+    dropped: messages.length - kept.length,
+  };
+}
+
+export function patchConnectRequestGatewayAuth(
+  text: string,
+  openClawInfo: Pick<OpenClawInfo, 'authMode' | 'password'>,
+): { text: string; injected: boolean } {
+  if (openClawInfo.authMode !== 'password' || !openClawInfo.password) {
+    return { text, injected: false };
+  }
+
+  try {
+    const parsed = JSON.parse(text) as {
+      type?: unknown;
+      method?: unknown;
+      params?: Record<string, unknown>;
+    };
+    if (parsed.type !== 'req' || (parsed.method !== 'connect' && parsed.method !== 'connect.start')) {
+      return { text, injected: false };
+    }
+
+    const params = parsed.params && typeof parsed.params === 'object' ? { ...parsed.params } : {};
+    const auth = params.auth && typeof params.auth === 'object'
+      ? { ...(params.auth as Record<string, unknown>) }
+      : {};
+    const existingPassword = typeof auth.password === 'string' ? auth.password.trim() : '';
+    if (existingPassword) {
+      return { text, injected: false };
+    }
+
+    auth.password = openClawInfo.password;
+    params.auth = auth;
+    return {
+      text: JSON.stringify({
+        ...parsed,
+        params,
+      }),
+      injected: true,
+    };
+  } catch {
+    return { text, injected: false };
+  }
+}
+
+function formatConnectHandshakeMetaForLog(meta: {
+  id: string | null;
+  method: 'connect' | 'connect.start';
+  noncePresent: boolean;
+  nonceLength: number | null;
+  authFields: string[];
+} | null): string {
+  if (!meta) return '';
+  return (
+    ` method=${meta.method}` +
+    ` reqId=${meta.id ? '<redacted>' : '<none>'}` +
+    ` noncePresent=${meta.noncePresent}` +
+    ` nonceLength=${meta.nonceLength ?? 0}` +
+    ` authFields=${meta.authFields.length > 0 ? meta.authFields.join(',') : '<none>'}`
+  );
+}
+
+function parseBootstrapRequestPayload(
+  payload: Record<string, unknown> | undefined,
+):
+  | { ok: true; value: { deviceId: string; publicKey: string; role: string; scopes: string[] } }
+  | { ok: false; code: string; message: string } {
+  if (!payload) {
+    return {
+      ok: false,
+      code: 'invalid_request',
+      message: 'bootstrap.request payload is required',
+    };
+  }
+
+  const deviceId = readRequiredString(payload.deviceId);
+  const publicKey = readRequiredString(payload.publicKey);
+  const role = readRequiredString(payload.role);
+  const scopes = normalizeScopeList(payload.scopes);
+
+  if (!deviceId) {
+    return { ok: false, code: 'invalid_request', message: 'payload.deviceId is required' };
+  }
+  if (!publicKey) {
+    return { ok: false, code: 'invalid_request', message: 'payload.publicKey is required' };
+  }
+  if (!role) {
+    return { ok: false, code: 'invalid_request', message: 'payload.role is required' };
+  }
+  if (scopes.length === 0) {
+    return { ok: false, code: 'invalid_request', message: 'payload.scopes must contain at least one scope' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      deviceId,
+      publicKey,
+      role,
+      scopes,
+    },
+  };
+}
+
+function readRequiredString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeScopeList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const scopes = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (trimmed) {
+      scopes.add(trimmed);
+    }
+  }
+  return [...scopes].sort();
+}
+
+export function buildRelayWsUrl(config: PairingConfig): string {
+  const base = new URL(config.relayUrl);
+  if (!base.pathname || base.pathname === '/') {
+    base.pathname = '/ws';
+  }
+  base.searchParams.delete('token');
+  base.searchParams.set('gatewayId', config.gatewayId);
+  base.searchParams.set('role', 'gateway');
+  base.searchParams.set('clientId', config.instanceId);
+  return base.toString();
+}
+
+export function buildRelayWsHeaders(config: Pick<PairingConfig, 'relaySecret'>): Record<string, string> {
+  return {
+    Authorization: `Bearer ${config.relaySecret}`,
+  };
+}
+
+function redactRelayWsUrl(rawUrl: string): string {
+  const parsed = new URL(rawUrl);
+  if (parsed.username) {
+    parsed.username = '<redacted>';
+  }
+  if (parsed.password) {
+    parsed.password = '<redacted>';
+  }
+  stripSensitiveSearchParams(parsed);
+  return parsed.toString();
+}
+
+function redactAuthorizationHeader(value: string | undefined): string {
+  const trimmed = value?.trim() ?? '';
+  if (!trimmed) return '<none>';
+  return /^Bearer\s+/i.test(trimmed) ? 'Bearer <redacted>' : '<redacted>';
+}
+
+export function sanitizeRuntimeLogLine(line: string): string {
+  return line
+    .replace(
+      /\b(instanceId|clientId|sourceClientId|targetClientId|deviceId|requestId|reqId|traceId)=([^\s]+)/g,
+      '$1=<redacted>',
+    )
+    .replace(/\b(relay|client)=([^\s]+)/g, '$1=<redacted>')
+    .replace(/\b(grs_[A-Za-z0-9_-]+|gct_[A-Za-z0-9_-]+)\b/g, '<redacted>');
+}
+
+function redactGatewayWsUrl(rawUrl: string): string {
+  const parsed = new URL(rawUrl);
+  if (parsed.username) {
+    parsed.username = '<redacted>';
+  }
+  if (parsed.password) {
+    parsed.password = '<redacted>';
+  }
+  parsed.hostname = '<redacted-host>';
+  stripSensitiveSearchParams(parsed);
+  return parsed.toString();
+}
+
+function stripSensitiveSearchParams(parsed: URL): void {
+  const sensitiveKeys = ['token', 'password', 'gatewayId', 'clientId', 'requestId', 'reqId', 'traceId'];
+  for (const key of sensitiveKeys) {
+    parsed.searchParams.delete(key);
+  }
+}
+
+function normalizeText(data: RawData): string | null {
+  if (typeof data === 'string') return data;
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
+  return null;
+}
+
+function normalizeBinary(data: RawData): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (typeof data === 'string') return Buffer.from(data, 'utf8');
+  if (Array.isArray(data)) return Buffer.concat(data);
+  return Buffer.from(data);
+}

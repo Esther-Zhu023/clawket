@@ -1,0 +1,278 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { StorageService, LastOpenedSessionSnapshot } from '../../../services/storage';
+import { SessionInfo } from '../../../types';
+import { AgentInfo } from '../../../types/agent';
+import { sessionLabel } from '../../../utils/chat-message';
+import {
+  isPrimaryCachedSessionKey,
+  PRIMARY_CACHED_AGENT_ID,
+  sanitizePrimarySessionSnapshot,
+} from '../../../utils/primary-session-cache';
+import { agentIdFromSessionKey } from './agentActivity';
+import { buildInitialAgentIdentity } from './chatControllerUtils';
+
+type GatewayLike = {
+  fetchIdentity: (agentId: string) => Promise<{
+    name?: string;
+    emoji?: string;
+    avatar?: string;
+  }>;
+  getBaseUrl: () => string | null;
+  getConnectionState: () => string;
+};
+
+export type ChatAgentIdentity = {
+  displayName: string;
+  avatarUri: string | null;
+  emoji: string | null;
+};
+
+function mergeAgentIdentity(
+  prev: ChatAgentIdentity,
+  next: Partial<ChatAgentIdentity>,
+): ChatAgentIdentity {
+  const merged = {
+    displayName: next.displayName ?? prev.displayName,
+    avatarUri: next.avatarUri ?? prev.avatarUri,
+    emoji: next.emoji ?? prev.emoji,
+  };
+
+  if (
+    merged.displayName === prev.displayName
+    && merged.avatarUri === prev.avatarUri
+    && merged.emoji === prev.emoji
+  ) {
+    return prev;
+  }
+
+  return merged;
+}
+
+type Params = {
+  agents: AgentInfo[];
+  cacheAgentName?: string;
+  currentAgentId: string;
+  currentSessionInfo?: SessionInfo;
+  gateway: GatewayLike;
+  gatewayConfigId: string | null;
+  initialPreview?: LastOpenedSessionSnapshot | null;
+  sessionKey: string | null;
+};
+
+export function useChatAgentIdentity({
+  agents,
+  cacheAgentName,
+  currentAgentId,
+  currentSessionInfo,
+  gateway,
+  gatewayConfigId,
+  initialPreview,
+  sessionKey,
+}: Params): ChatAgentIdentity {
+  const [agentIdentity, setAgentIdentity] = useState<ChatAgentIdentity>(
+    buildInitialAgentIdentity(initialPreview),
+  );
+  const sessionSnapshotUpdatedAtRef = useRef(Date.now());
+  const lastPersistedSessionSnapshotRef = useRef<string | null>(null);
+  const lastPersistedAgentIdentityRef = useRef<string | null>(null);
+
+  const resolveAvatarUri = useCallback(
+    (avatar: string): string | null => {
+      if (avatar.startsWith('/')) {
+        const base = gateway.getBaseUrl();
+        return base ? `${base}${avatar}` : null;
+      }
+      if (avatar.startsWith('http') || avatar.startsWith('data:')) {
+        return avatar;
+      }
+      return null;
+    },
+    [gateway],
+  );
+
+  useEffect(() => {
+    if (!gatewayConfigId) return;
+    const shouldHydrateFromPrimaryCache = (
+      currentAgentId === PRIMARY_CACHED_AGENT_ID
+      && (!sessionKey || isPrimaryCachedSessionKey(sessionKey))
+    );
+    if (!shouldHydrateFromPrimaryCache) return;
+    let cancelled = false;
+
+    Promise.all([
+      StorageService.getLastOpenedSessionSnapshot(gatewayConfigId)
+        .then((snapshot) => sanitizePrimarySessionSnapshot(snapshot))
+        .catch(() => null),
+      StorageService.getCachedAgentIdentity(gatewayConfigId, PRIMARY_CACHED_AGENT_ID).catch(() => null),
+    ])
+      .then(([snapshot, cachedIdentity]) => {
+        if (cancelled) return;
+        setAgentIdentity((prev) => {
+          const nextDisplayName = snapshot?.agentName?.trim()
+            || cachedIdentity?.agentName?.trim()
+            || prev.displayName;
+          const nextAvatarUri = snapshot?.agentAvatarUri?.trim()
+            || cachedIdentity?.agentAvatarUri?.trim()
+            || prev.avatarUri;
+          const nextEmoji = snapshot?.agentEmoji?.trim()
+            || cachedIdentity?.agentEmoji?.trim()
+            || prev.emoji;
+          if (
+            nextDisplayName === prev.displayName
+            && nextAvatarUri === prev.avatarUri
+            && nextEmoji === prev.emoji
+          ) {
+            return prev;
+          }
+          return {
+            displayName: nextDisplayName,
+            avatarUri: nextAvatarUri,
+            emoji: nextEmoji,
+          };
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAgentId, gatewayConfigId, sessionKey]);
+
+  useEffect(() => {
+    const agentInfo = agents.find((agent) => agent.id === currentAgentId);
+    let displayName = 'Assistant';
+    if (agentInfo?.identity?.name?.trim()) {
+      displayName = agentInfo.identity.name.trim();
+    } else if (agentInfo?.name?.trim()) {
+      displayName = agentInfo.name.trim();
+    }
+
+    const emoji = agentInfo?.identity?.emoji ?? null;
+    let avatarUri: string | null = null;
+    if (agentInfo?.identity?.avatar) {
+      avatarUri = resolveAvatarUri(agentInfo.identity.avatar);
+    } else if (agentInfo?.identity?.avatarUrl) {
+      avatarUri = agentInfo.identity.avatarUrl;
+    }
+
+    if (agents.length > 0) {
+      setAgentIdentity((prev) => mergeAgentIdentity(prev, {
+        displayName,
+        avatarUri,
+        emoji,
+      }));
+    } else {
+      setAgentIdentity((prev) => {
+        const fallbackName = cacheAgentName?.trim();
+        const nextDisplayName = fallbackName && prev.displayName === 'Assistant'
+          ? fallbackName
+          : prev.displayName;
+        return mergeAgentIdentity(prev, { displayName: nextDisplayName });
+      });
+    }
+
+    if (gateway.getConnectionState() === 'ready') {
+      gateway.fetchIdentity(currentAgentId)
+        .then((identity) => {
+          setAgentIdentity((prev) => {
+            const name = identity.name?.trim() || prev.displayName;
+            const nextEmoji = identity.emoji || prev.emoji;
+            let nextAvatar = prev.avatarUri;
+            if (identity.avatar) {
+              const resolved = resolveAvatarUri(identity.avatar);
+              if (resolved) nextAvatar = resolved;
+            }
+            return mergeAgentIdentity(prev, {
+              displayName: name,
+              avatarUri: nextAvatar,
+              emoji: nextEmoji,
+            });
+          });
+        })
+        .catch(() => {});
+    }
+  }, [agents, cacheAgentName, currentAgentId, gateway, resolveAvatarUri]);
+
+  useEffect(() => {
+    if (sessionKey) {
+      sessionSnapshotUpdatedAtRef.current = Date.now();
+    }
+  }, [sessionKey]);
+
+  useEffect(() => {
+    if (!gatewayConfigId || !sessionKey) return;
+    if (!isPrimaryCachedSessionKey(sessionKey)) return;
+    const snapshotAgentId = agentIdFromSessionKey(sessionKey) ?? currentAgentId;
+    const snapshotLabel = currentSessionInfo
+      ? sessionLabel(currentSessionInfo, {
+        currentAgentName: agentIdentity.displayName || cacheAgentName,
+      })
+      : undefined;
+    const snapshot = {
+      sessionKey,
+      sessionId: currentSessionInfo?.sessionId,
+      sessionLabel: snapshotLabel,
+      updatedAt: currentSessionInfo?.updatedAt ?? sessionSnapshotUpdatedAtRef.current,
+      agentId: snapshotAgentId,
+      agentName: agentIdentity.displayName || undefined,
+      agentEmoji: agentIdentity.emoji || undefined,
+      agentAvatarUri: agentIdentity.avatarUri || undefined,
+    };
+    const signature = JSON.stringify(snapshot);
+    if (lastPersistedSessionSnapshotRef.current === signature) return;
+    lastPersistedSessionSnapshotRef.current = signature;
+    StorageService.setLastOpenedSessionSnapshot(gatewayConfigId, snapshot).catch(() => {
+      if (lastPersistedSessionSnapshotRef.current === signature) {
+        lastPersistedSessionSnapshotRef.current = null;
+      }
+    });
+  }, [
+    agentIdentity.avatarUri,
+    agentIdentity.displayName,
+    agentIdentity.emoji,
+    cacheAgentName,
+    currentAgentId,
+    currentSessionInfo,
+    gatewayConfigId,
+    sessionKey,
+  ]);
+
+  useEffect(() => {
+    if (!gatewayConfigId) return;
+    const shouldPersistPrimaryIdentity = (
+      currentAgentId === PRIMARY_CACHED_AGENT_ID
+      && (!sessionKey || isPrimaryCachedSessionKey(sessionKey))
+    );
+    if (!shouldPersistPrimaryIdentity) return;
+    const cachedIdentity = {
+      agentId: PRIMARY_CACHED_AGENT_ID,
+      updatedAt: Date.now(),
+      agentName: agentIdentity.displayName || undefined,
+      agentEmoji: agentIdentity.emoji || undefined,
+      agentAvatarUri: agentIdentity.avatarUri || undefined,
+    };
+    const signature = JSON.stringify({
+      scope: gatewayConfigId,
+      agentId: PRIMARY_CACHED_AGENT_ID,
+      agentName: cachedIdentity.agentName,
+      agentEmoji: cachedIdentity.agentEmoji,
+      agentAvatarUri: cachedIdentity.agentAvatarUri,
+    });
+    if (lastPersistedAgentIdentityRef.current === signature) return;
+    lastPersistedAgentIdentityRef.current = signature;
+    StorageService.setCachedAgentIdentity(gatewayConfigId, cachedIdentity).catch(() => {
+      if (lastPersistedAgentIdentityRef.current === signature) {
+        lastPersistedAgentIdentityRef.current = null;
+      }
+    });
+  }, [
+    agentIdentity.avatarUri,
+    agentIdentity.displayName,
+    agentIdentity.emoji,
+    currentAgentId,
+    gatewayConfigId,
+    sessionKey,
+  ]);
+
+  return agentIdentity;
+}

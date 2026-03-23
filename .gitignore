@@ -1,0 +1,26 @@
+node_modules/
+node_modules.bak.*/
+node_modules.hoisted-reset.*/
+*.log
+.DS_Store
+coverage/
+.wrangler/
+*.tgz
+*.xcarchive
+*.tsbuildinfo
+package-lock.json.bak.*
+
+# Build outputs
+dist/
+
+# Environment
+.env
+.env.local
+
+apps/mobile/.expo/
+apps/mobile/coverage/
+apps/mobile/ios/build/
+apps/mobile/office-game/dist/
+apps/mobile/office-game/node_modules/
+
+apps/*/wrangler.local.toml
