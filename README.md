@@ -10,7 +10,16 @@
 
 [中文说明](./README.zh-CN.md)
 
-Clawket is an open-source mobile app for managing your [OpenClaw](https://github.com/openclaw/openclaw) AI agents on the go. Available on [iOS](https://apps.apple.com/app/id6759597015) and Android.
+Clawket is an open-source mobile app for managing your [OpenClaw](https://github.com/openclaw/openclaw) AI agents on the go. Available on iOS and Android.
+
+<p align="center">
+  <a href="https://apps.apple.com/app/id6759597015">
+    <img src="./assets/clawket-app-store.png" alt="Scan to download Clawket on the App Store" width="180" />
+  </a>
+</p>
+<p align="center">
+  <strong>Scan to open the <a href="https://apps.apple.com/app/id6759597015">App Store</a> on your iPhone.</strong>
+</p>
 
 ## Key Features
 
