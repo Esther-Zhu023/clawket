@@ -45,14 +45,21 @@ import {
 import { StorageService } from "../../services/storage";
 import { useAppTheme } from "../../theme";
 import { FontSize, FontWeight, Radius, Space } from "../../theme/tokens";
+import { getDisplayAgentEmoji } from "../../utils/agent-emoji";
 import { sessionLabel } from "../../utils/chat-message";
 import { splitHighlightSegments } from "../../utils/text-highlight";
 import type { ConsoleStackParamList } from "./ConsoleTab";
 import {
-  buildChatHistoryAgentFilters,
-  getChatHistoryFilterKey,
-  type GatewayNameMap,
-} from "./chatHistoryFilters";
+  buildChatHistoryDisplayGroups,
+  buildChatHistorySessionGroups,
+  buildGroupedSearchMatches,
+  countUniqueMessages,
+  getChatHistorySessionGroupKey,
+  getChatHistorySessionGroupKey as getLogicalSessionGroupKey,
+  type ChatHistorySessionGroup,
+  type ChatHistoryDisplayGroup,
+} from "./chatHistoryGroups";
+import type { GatewayNameMap } from "./chatHistoryFilters";
 
 type Navigation = NativeStackNavigationProp<
   ConsoleStackParamList,
@@ -104,8 +111,12 @@ function formatSessionLabel(
 
 /** List item — either a session card or a content-match result row. */
 type ListItem =
-  | { type: "session"; meta: CachedSessionMeta; contentMatchCount?: number }
-  | { type: "match"; meta: CachedSessionMeta; message: CachedMessage };
+  | {
+      type: "session";
+      group: ChatHistoryDisplayGroup;
+      contentMatchCount?: number;
+    }
+  | { type: "match"; group: ChatHistoryDisplayGroup; message: CachedMessage };
 
 function renderHighlightedText(
   text: string,
@@ -153,6 +164,9 @@ export function ChatHistoryScreen(): React.JSX.Element {
   const [loadingFavorites, setLoadingFavorites] = useState(true);
   const [searchText, setSearchText] = useState("");
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
+  const [groupMessageCounts, setGroupMessageCounts] = useState<
+    Record<string, number>
+  >({});
 
   // Content search results (debounced)
   const [contentResults, setContentResults] = useState<
@@ -196,10 +210,99 @@ export function ChatHistoryScreen(): React.JSX.Element {
     loadData();
   }, [loadData]);
 
-  const agents = useMemo(
-    () => buildChatHistoryAgentFilters(sessions, gatewayNames),
-    [gatewayNames, sessions],
+  const groupedSessions = useMemo(
+    () => buildChatHistorySessionGroups(sessions),
+    [sessions],
   );
+  const displayGroups = useMemo(
+    () =>
+      buildChatHistoryDisplayGroups(groupedSessions, {
+        resolveAgentLabel: (meta) => meta.agentName?.trim() || meta.agentId,
+        resolveSessionLabel: (meta) => formatSessionLabel(meta, t),
+      }),
+    [groupedSessions, t],
+  );
+  const agents = useMemo(
+    () =>
+      Array.from(
+        displayGroups.reduce(
+          (map, group) => {
+            const agentKey = group.agentLabel.trim().toLowerCase();
+            const existing = map.get(agentKey);
+            if (existing) {
+              existing.sessionCount += 1;
+              existing.lastUpdatedAt = Math.max(
+                existing.lastUpdatedAt,
+                group.latestMeta.updatedAt,
+              );
+            } else {
+              map.set(agentKey, {
+                key: agentKey,
+                label: group.agentLabel,
+                emoji: group.latestMeta.agentEmoji,
+                sessionCount: 1,
+                lastUpdatedAt: group.latestMeta.updatedAt,
+              });
+            }
+            return map;
+          },
+          new Map<
+            string,
+            {
+              key: string;
+              label: string;
+              emoji?: string;
+              sessionCount: number;
+              lastUpdatedAt: number;
+            }
+          >(),
+        ),
+      )
+        .map(([, value]) => value)
+        .sort(
+          (a, b) =>
+            b.lastUpdatedAt - a.lastUpdatedAt ||
+            a.label.localeCompare(b.label),
+        ),
+    [displayGroups],
+  );
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadGroupMessageCounts = async () => {
+      if (displayGroups.length === 0) {
+        setGroupMessageCounts({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        displayGroups.map(async (group) => {
+          const lineageParts = await Promise.all(
+            group.logicalSessions.map((logicalSession) =>
+              ChatCacheService.getSessionLineage(
+                logicalSession.gatewayConfigId,
+                logicalSession.agentId,
+                logicalSession.sessionKey,
+              ),
+            ),
+          );
+          const mergedCount = countUniqueMessages(
+            lineageParts.flat().map((snapshot) => snapshot.messages),
+          );
+          return [group.key, mergedCount] as const;
+        }),
+      );
+
+      if (cancelled) return;
+      setGroupMessageCounts(Object.fromEntries(entries));
+    };
+
+    void loadGroupMessageCounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [displayGroups]);
   const hasMultipleGateways = useMemo(
     () => new Set(sessions.map((session) => session.gatewayConfigId)).size > 1,
     [sessions],
@@ -224,18 +327,7 @@ export function ChatHistoryScreen(): React.JSX.Element {
 
     setSearching(true);
     searchTimerRef.current = setTimeout(async () => {
-      const selectedFilter = agentFilter
-        ? (agents.find((item) => item.key === agentFilter) ?? null)
-        : null;
-      const results = await ChatCacheService.search(
-        query,
-        selectedFilter
-          ? {
-              agentId: selectedFilter.agentId,
-              gatewayConfigId: selectedFilter.gatewayConfigId,
-            }
-          : undefined,
-      );
+      const results = await ChatCacheService.search(query);
       setContentResults(results);
       setSearching(false);
     }, SEARCH_DEBOUNCE_MS);
@@ -257,75 +349,111 @@ export function ChatHistoryScreen(): React.JSX.Element {
 
     // No search — show all sessions filtered by agent
     if (!query) {
-      let result = sessions;
+      let result = displayGroups;
       if (agentFilter) {
         result = result.filter(
-          (s) => getChatHistoryFilterKey(s) === agentFilter,
+          (group) => group.key.startsWith(`${agentFilter}::`) || group.agentLabel.trim().toLowerCase() === agentFilter,
         );
       }
-      return result.map((meta) => ({ type: "session" as const, meta }));
+      return result.map((group) => ({ type: "session" as const, group }));
     }
 
     // With search — merge label-matched sessions + content-matched sessions
-    let pool = sessions;
+    let pool = displayGroups;
     if (agentFilter) {
-      pool = pool.filter((s) => getChatHistoryFilterKey(s) === agentFilter);
+      pool = pool.filter(
+        (group) =>
+          group.key.startsWith(`${agentFilter}::`) ||
+          group.agentLabel.trim().toLowerCase() === agentFilter,
+      );
     }
 
     // Sessions matching by label/agent name
     const labelMatched = new Set<string>();
-    for (const s of pool) {
+    for (const group of pool) {
+      const meta = group.latestMeta;
       if (
-        formatSessionLabel(s, t).toLowerCase().includes(query) ||
-        (s.agentName && s.agentName.toLowerCase().includes(query))
+        group.sessionLabel.toLowerCase().includes(query) ||
+        group.agentLabel.toLowerCase().includes(query)
       ) {
-        labelMatched.add(s.storageKey);
+        labelMatched.add(group.key);
       }
     }
 
     // Build content match count map
+    const groupedContentMatches = buildGroupedSearchMatches(contentResults);
     const contentMatchMap = new Map<
       string,
-      { meta: CachedSessionMeta; matches: CachedMessage[] }
+      { group: ChatHistoryDisplayGroup; matches: CachedMessage[] }
     >();
-    for (const r of contentResults) {
-      contentMatchMap.set(r.meta.storageKey, r);
+    for (const result of groupedContentMatches) {
+      const group = displayGroups.find((item) =>
+        item.logicalSessions.some(
+          (logicalSession) =>
+            getLogicalSessionGroupKey(logicalSession.latestMeta) === result.groupKey,
+        ),
+      );
+      if (!group) continue;
+      const existing = contentMatchMap.get(group.key);
+      if (existing) {
+        const seenMessageIds = new Set(existing.matches.map((message) => message.id));
+        for (const message of result.messages) {
+          if (seenMessageIds.has(message.id)) continue;
+          seenMessageIds.add(message.id);
+          existing.matches.push(message);
+        }
+      } else {
+        contentMatchMap.set(group.key, {
+          group,
+          matches: [...result.messages],
+        });
+      }
     }
 
     const items: ListItem[] = [];
     const seen = new Set<string>();
 
     // First: sessions that match by label (show as session cards with optional match count)
-    for (const meta of pool) {
-      if (!labelMatched.has(meta.storageKey)) continue;
-      seen.add(meta.storageKey);
-      const contentHit = contentMatchMap.get(meta.storageKey);
+    for (const group of pool) {
+      if (!labelMatched.has(group.key)) continue;
+      seen.add(group.key);
+      const contentHit = contentMatchMap.get(group.key);
       items.push({
         type: "session",
-        meta,
+        group,
         contentMatchCount: contentHit?.matches.length,
       });
     }
 
     // Then: sessions that match by content only (not already shown from label match)
-    for (const { meta, matches } of contentResults) {
-      if (seen.has(meta.storageKey)) continue;
+    for (const { group, matches } of contentMatchMap.values()) {
+      if (seen.has(group.key)) continue;
       // Skip if filtered by agent and doesn't match
-      if (agentFilter && getChatHistoryFilterKey(meta) !== agentFilter)
+      if (
+        agentFilter &&
+        !(
+          group.key.startsWith(`${agentFilter}::`) ||
+          group.agentLabel.trim().toLowerCase() === agentFilter
+        )
+      )
         continue;
-      seen.add(meta.storageKey);
+      seen.add(group.key);
 
       // Show session card with match count
-      items.push({ type: "session", meta, contentMatchCount: matches.length });
+      items.push({
+        type: "session",
+        group,
+        contentMatchCount: matches.length,
+      });
 
       // Show up to 3 matching message previews inline
       for (const msg of matches.slice(0, 3)) {
-        items.push({ type: "match", meta, message: msg });
+        items.push({ type: "match", group, message: msg });
       }
     }
 
     return items;
-  }, [contentResults, agentFilter, searchText, sessions, t]);
+  }, [contentResults, agentFilter, displayGroups, searchText]);
 
   const visibleListItems = useMemo(
     () =>
@@ -348,7 +476,8 @@ export function ChatHistoryScreen(): React.JSX.Element {
   }, [favorites, searchText]);
 
   const handleDelete = useCallback(
-    (meta: CachedSessionMeta) => {
+    (group: ChatHistoryDisplayGroup) => {
+      const meta = group.latestMeta;
       Alert.alert(
         t("Delete Cache"),
         t('Delete cached messages for "{{label}}"?', {
@@ -360,9 +489,24 @@ export function ChatHistoryScreen(): React.JSX.Element {
             text: t("common:Delete"),
             style: "destructive",
             onPress: async () => {
-              await ChatCacheService.deleteSession(meta.storageKey);
+              await Promise.all(
+                group.logicalSessions.map((logicalSession) =>
+                  ChatCacheService.deleteMessages(
+                    logicalSession.gatewayConfigId,
+                    logicalSession.agentId,
+                    logicalSession.sessionKey,
+                  ),
+                ),
+              );
               setSessions((prev) =>
-                prev.filter((s) => s.storageKey !== meta.storageKey),
+                prev.filter(
+                  (session) =>
+                    !group.logicalSessions.some(
+                      (logicalSession) =>
+                        getChatHistorySessionGroupKey(session) ===
+                        logicalSession.key,
+                    ),
+                ),
               );
             },
           },
@@ -494,8 +638,13 @@ export function ChatHistoryScreen(): React.JSX.Element {
             activeOpacity={0.7}
             onPress={() =>
               navigation.navigate("ChatHistoryDetail", {
-                storageKey: item.meta.storageKey,
+                storageKey: item.group.latestMeta.storageKey,
                 initialQuery,
+                sessionRefs: item.group.logicalSessions.map((logicalSession) => ({
+                  gatewayConfigId: logicalSession.gatewayConfigId,
+                  agentId: logicalSession.agentId,
+                  sessionKey: logicalSession.sessionKey,
+                })),
               })
             }
           >
@@ -511,14 +660,15 @@ export function ChatHistoryScreen(): React.JSX.Element {
                 text,
                 searchText,
                 colors,
-                `match_${item.meta.storageKey}_${msg.id}`,
+                `match_${item.group.latestMeta.storageKey}_${msg.id}`,
               )}
             </Text>
           </TouchableOpacity>
         );
       }
 
-      const { meta, contentMatchCount } = item;
+      const { group, contentMatchCount } = item;
+      const meta = group.latestMeta;
       const initialQuery = searchText.trim() || undefined;
       return (
         <TouchableOpacity
@@ -531,25 +681,30 @@ export function ChatHistoryScreen(): React.JSX.Element {
             navigation.navigate("ChatHistoryDetail", {
               storageKey: meta.storageKey,
               initialQuery,
+              sessionRefs: group.logicalSessions.map((logicalSession) => ({
+                gatewayConfigId: logicalSession.gatewayConfigId,
+                agentId: logicalSession.agentId,
+                sessionKey: logicalSession.sessionKey,
+              })),
             })
           }
         >
           <View style={styles.sessionRow}>
-            <Text style={styles.sessionEmoji}>{meta.agentEmoji || "🤖"}</Text>
+            <Text style={styles.sessionEmoji}>{getDisplayAgentEmoji(meta.agentEmoji)}</Text>
             <View style={styles.sessionInfo}>
               <Text
                 style={[styles.sessionTitle, { color: colors.text }]}
                 numberOfLines={1}
               >
                 {renderHighlightedText(
-                  meta.agentName || meta.agentId.slice(0, 12),
+                  group.agentLabel,
                   searchText,
                   colors,
                   `agent_${meta.storageKey}`,
                 )}
                 <Text style={{ color: colors.textSubtle }}> / </Text>
                 {renderHighlightedText(
-                  formatSessionLabel(meta, t),
+                  group.sessionLabel,
                   searchText,
                   colors,
                   `session_${meta.storageKey}`,
@@ -564,7 +719,7 @@ export function ChatHistoryScreen(): React.JSX.Element {
                 <Text
                   style={[styles.sessionMetaText, { color: colors.textMuted }]}
                 >
-                  {meta.messageCount}
+                  {groupMessageCounts[group.key] ?? meta.messageCount}
                 </Text>
                 <Text
                   style={[styles.sessionMetaDot, { color: colors.textSubtle }]}
@@ -578,6 +733,28 @@ export function ChatHistoryScreen(): React.JSX.Element {
                     ? formatRelativeTime(meta.lastMessageMs, t)
                     : "—"}
                 </Text>
+                {group.snapshotCount > 1 && (
+                  <>
+                    <Text
+                      style={[
+                        styles.sessionMetaDot,
+                        { color: colors.textSubtle },
+                      ]}
+                    >
+                      ·
+                    </Text>
+                    <Text
+                      style={[styles.snapshotBadge, { color: colors.textMuted }]}
+                    >
+                      {t(
+                        group.snapshotCount > 1
+                          ? "{{count}} snapshots"
+                          : "{{count}} snapshot",
+                        { count: group.snapshotCount },
+                      )}
+                    </Text>
+                  </>
+                )}
                 {hasMultipleGateways && (
                   <>
                     <Text
@@ -622,7 +799,7 @@ export function ChatHistoryScreen(): React.JSX.Element {
             <View style={styles.sessionActions}>
               <IconButton
                 icon={<Trash2 size={15} color={colors.error} strokeWidth={2} />}
-                onPress={() => handleDelete(meta)}
+                onPress={() => handleDelete(group)}
               />
               <ChevronRight
                 size={15}
@@ -641,6 +818,7 @@ export function ChatHistoryScreen(): React.JSX.Element {
       hasMultipleGateways,
       navigation,
       searchText,
+      groupMessageCounts,
       t,
     ],
   );
@@ -801,7 +979,7 @@ export function ChatHistoryScreen(): React.JSX.Element {
               activeOpacity={0.7}
             >
               {agent.emoji && (
-                <Text style={styles.filterChipEmoji}>{agent.emoji}</Text>
+                <Text style={styles.filterChipEmoji}>{getDisplayAgentEmoji(agent.emoji)}</Text>
               )}
               <Text
                 style={[
@@ -848,8 +1026,8 @@ export function ChatHistoryScreen(): React.JSX.Element {
           data={visibleListItems}
           keyExtractor={(item, index) =>
             item.type === "session"
-              ? item.meta.storageKey
-              : `match_${item.meta.storageKey}_${item.message.id}_${index}`
+              ? item.group.key
+              : `match_${item.group.key}_${item.message.id}_${index}`
           }
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
@@ -991,6 +1169,10 @@ const styles = StyleSheet.create({
   matchBadge: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
+  },
+  snapshotBadge: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
   },
   gatewayBadge: {
     fontSize: FontSize.sm,

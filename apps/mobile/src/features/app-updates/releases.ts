@@ -10,11 +10,11 @@ export type AppUpdateAnnouncementAction =
     }
   | {
       type: 'navigate_console';
-      screen: 'CronWizard' | 'SessionsBoard' | 'ModelList';
+      screen: 'CronWizard' | 'SessionsBoard' | 'ModelList' | 'Nodes';
     }
   | {
       type: 'navigate_config';
-      screen: 'ChatAppearance';
+      screen: 'ChatAppearance' | 'OpenClawConfig';
     };
 
 export type AppUpdateAnnouncementEntry = {
@@ -43,6 +43,42 @@ export const DEFAULT_APP_UPDATE_DEBUG_HINT =
 
 // Keep this array newest-first. The first entry is treated as the latest release.
 export const APP_UPDATE_RELEASES: AppUpdateRelease[] = [
+  {
+    version: '1.7.0',
+    releasedAt: '2026-03-29',
+    entries: [
+      {
+        id: 'openclaw-diagnostics-auto-repair',
+        emoji: '🩺',
+        title: 'OpenClaw Diagnostics and Auto Repair',
+        subtitle: 'View OpenClaw health status and run openclaw doctor --fix.',
+        action: {
+          type: 'navigate_config',
+          screen: 'OpenClawConfig',
+        },
+      },
+      {
+        id: 'openclaw-permissions-management',
+        emoji: '🔐',
+        title: 'OpenClaw Permissions',
+        subtitle: 'Review and manage what OpenClaw is allowed to access.',
+        action: {
+          type: 'navigate_config',
+          screen: 'OpenClawConfig',
+        },
+      },
+      {
+        id: 'openclaw-node-capabilities',
+        emoji: '🧩',
+        title: 'Improved OpenClaw Node Capabilities',
+        subtitle: 'Added support for capabilities like camera.snap and photos.latest.',
+        action: {
+          type: 'navigate_console',
+          screen: 'Nodes',
+        },
+      },
+    ],
+  },
   {
     version: '1.6.0',
     releasedAt: '2026-03-26',

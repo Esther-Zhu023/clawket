@@ -97,6 +97,42 @@ describe('historyLineage', () => {
     ]);
   });
 
+  it('filters cached delivery-mirror assistant messages while keeping the real reply', () => {
+    const snapshots = [
+      {
+        meta: {
+          storageKey: 'mirror',
+          gatewayConfigId: 'gw-1',
+          agentId: 'main',
+          sessionKey: 'agent:main:main',
+          sessionId: 'sess-mirror',
+          messageCount: 2,
+          updatedAt: 10,
+        },
+        messages: [
+          {
+            id: 'a1',
+            role: 'assistant',
+            text: 'real reply',
+            timestampMs: 2,
+            provider: 'openclaw',
+            model: 'delivery-mirror',
+          },
+          {
+            id: 'a2',
+            role: 'assistant',
+            text: 'real reply',
+            timestampMs: 3,
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        ],
+      },
+    ] as CachedSessionSnapshot[];
+
+    expect(buildCachedLineageMessages(snapshots).map((message) => message.id)).toEqual(['a2']);
+  });
+
   it('merges archived cached generations ahead of current gateway history', () => {
     const cachedSnapshots = [
       makeSnapshot({

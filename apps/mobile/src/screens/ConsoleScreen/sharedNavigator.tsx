@@ -64,7 +64,15 @@ export type ConsoleStackParamList = {
   HeartbeatSettings: undefined;
   ChatHistory: undefined;
   SessionsBoard: undefined;
-  ChatHistoryDetail: { storageKey: string; initialQuery?: string };
+  ChatHistoryDetail: {
+    storageKey: string;
+    initialQuery?: string;
+    sessionRefs?: Array<{
+      gatewayConfigId: string;
+      agentId: string;
+      sessionKey: string;
+    }>;
+  };
   FavoriteMessageDetail: { favoriteKey: string };
 };
 

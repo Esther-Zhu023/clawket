@@ -19,6 +19,7 @@ import { FontWeight, Radius, Space } from '../../theme/tokens';
 import { useAppTheme } from '../../theme';
 import { PosterThemePicker } from '../../components/poster/PosterThemePicker';
 import { getPosterThemeForAccent, pickRandom } from '../../components/poster/posterThemes';
+import { getDisplayAgentEmoji } from '../../utils/agent-emoji';
 
 // ---- Types ----
 
@@ -173,7 +174,7 @@ export function StatsPosterModal({ visible, onClose, data, agentAvatarUri }: Pro
                 <Image source={{ uri: agentAvatarUri }} style={[s.avatarImage, { borderColor: theme.accentMuted }]} />
               ) : (
                 <View style={[s.emojiWrap, { backgroundColor: theme.accentSoft, borderColor: theme.accentMuted }]}>
-                  <Text style={s.agentEmoji}>{data.agentEmoji}</Text>
+                  <Text style={s.agentEmoji}>{getDisplayAgentEmoji(data.agentEmoji)}</Text>
                 </View>
               )}
               <View>

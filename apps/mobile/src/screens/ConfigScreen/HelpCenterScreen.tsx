@@ -1,6 +1,4 @@
 import React, { useCallback, useMemo, useState } from "react";
-import * as FileSystem from "expo-file-system";
-import * as MediaLibrary from "expo-media-library";
 import {
   Alert,
   Image,
@@ -34,6 +32,7 @@ import { useAppTheme } from "../../theme";
 import { FontSize, FontWeight, Radius, Space } from "../../theme/tokens";
 import { shouldShowWecomSupportEntry } from "../../utils/mainlandChina";
 import { buildSupportEmailUrl, publicAppLinks } from "../../config/public";
+import { saveBundledImageToPhotoLibrary } from "../../services/photo-library";
 import { getHelpCenterCommunityEntries } from "./helpCenterCommunity";
 import type { ConfigStackParamList } from "./ConfigTab";
 
@@ -91,27 +90,20 @@ export function HelpCenterScreen(): React.JSX.Element {
 
   const handleDownloadWecomQr = useCallback(async () => {
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync();
-      if (!perm.granted) {
+      const result = await saveBundledImageToPhotoLibrary(
+        WECHAT_QR_IMAGE,
+        "wechat-group-qr",
+      );
+      if (result === "permission_denied") {
         Alert.alert(
           t("Unable to save QR code"),
           t("Please allow photo library access and try again."),
         );
         return;
       }
-
-      const resolved = Image.resolveAssetSource(WECHAT_QR_IMAGE);
-      const destination = new FileSystem.File(
-        FileSystem.Paths.cache,
-        `wechat-group-qr-${Date.now()}.jpg`,
-      );
-      const downloaded = await FileSystem.File.downloadFileAsync(
-        resolved.uri,
-        destination,
-      );
-      await MediaLibrary.saveToLibraryAsync(downloaded.uri);
       Alert.alert(t("Saved"), t("QR code saved to your photo library."));
-    } catch {
+    } catch (error) {
+      console.warn("[WeComQr] Failed to save QR code:", error);
       Alert.alert(t("Unable to save QR code"), t("Please try again later."));
     }
   }, [t]);

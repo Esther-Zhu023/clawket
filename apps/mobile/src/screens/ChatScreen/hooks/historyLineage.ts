@@ -1,6 +1,9 @@
 import { CachedMessage, CachedSessionSnapshot } from '../../../services/chat-cache';
 import { UiMessage } from '../../../types/chat';
-import { isAssistantSilentReplyMessage } from '../../../utils/chat-message';
+import {
+  isAssistantDeliveryMirrorMessage,
+  isAssistantSilentReplyMessage,
+} from '../../../utils/chat-message';
 
 function buildMessageDedupKey(message: UiMessage): string {
   return JSON.stringify([
@@ -27,7 +30,8 @@ export function buildCachedLineageMessages(
   return snapshots
     .filter((snapshot) => !excludeSessionId || snapshot.meta.sessionId !== excludeSessionId)
     .flatMap((snapshot) => snapshot.messages.map(cachedMessageToUiMessage))
-    .filter((message) => !isAssistantSilentReplyMessage(message));
+    .filter((message) => !isAssistantSilentReplyMessage(message))
+    .filter((message) => !isAssistantDeliveryMirrorMessage(message));
 }
 
 export function mergeHistoryWithCachedLineage(params: {

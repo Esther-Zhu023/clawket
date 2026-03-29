@@ -6,6 +6,7 @@ import { ModalSheet, ThemedSwitch } from '../ui';
 import { useAppTheme } from '../../theme';
 import { useAppContext } from '../../contexts/AppContext';
 import { FontSize, FontWeight, Radius, Space } from '../../theme/tokens';
+import { extractDisplayAgentEmoji } from '../../utils/agent-emoji';
 
 type Props = {
   visible: boolean;
@@ -24,6 +25,7 @@ export function AgentAvatarModal({ visible, agentName, agentEmoji, avatarUri, on
   const { showAgentAvatar, onShowAgentAvatarToggle } = useAppContext();
   const styles = useMemo(() => createStyles(theme.colors), [theme]);
   const { colors } = theme;
+  const displayEmoji = extractDisplayAgentEmoji(agentEmoji);
 
   return (
     <ModalSheet visible={visible} onClose={onClose} title={t('Agent Avatar')}>
@@ -35,7 +37,7 @@ export function AgentAvatarModal({ visible, agentName, agentEmoji, avatarUri, on
           ) : (
             <View style={[styles.avatarLarge, styles.avatarPlaceholder, { backgroundColor: colors.primarySoft }]}>
               <Text style={styles.avatarPlaceholderText}>
-                {agentEmoji || (agentName || 'A').charAt(0).toUpperCase()}
+                {displayEmoji || (agentName || 'A').charAt(0).toUpperCase()}
               </Text>
             </View>
           )}

@@ -26,6 +26,7 @@ import { resolveAgentDisplayName } from '../../services/agent-display-name';
 import { enrichAgentsWithIdentity } from '../../services/agent-identity';
 import { useAppTheme } from '../../theme';
 import { FontSize, FontWeight, Radius, Space } from '../../theme/tokens';
+import { getDisplayAgentEmoji } from '../../utils/agent-emoji';
 import type { AgentInfo } from '../../types/agent';
 import type { ConsoleStackParamList } from './ConsoleTab';
 import { canAddAgent } from '../../utils/pro';
@@ -144,7 +145,7 @@ export function AgentListScreen(): React.JSX.Element {
     const isCurrent = item.id === currentAgentId;
     const isMain = item.id === mainKey;
     const displayName = resolveAgentDisplayName(item) ?? item.id;
-    const emoji = item.identity?.emoji || '🤖';
+    const emoji = getDisplayAgentEmoji(item.identity?.emoji);
 
     return (
       <Card

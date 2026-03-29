@@ -4,8 +4,8 @@ import {
   handleDeviceInfo,
   handleDeviceStatus,
   handleSystemNotify,
-  handleCameraCapture,
-  handleCameraPick,
+  handleCameraSnap,
+  handlePhotosLatest,
   handleLocationGet,
   handleClipboardRead,
   handleClipboardWrite,
@@ -16,12 +16,12 @@ import {
   NodeCapabilityToggles,
 } from './node-capabilities';
 
-const HANDLERS: Record<string, NodeInvokeHandler> = {
+const PRIMARY_HANDLERS: Record<string, NodeInvokeHandler> = {
   'device.info': handleDeviceInfo,
   'device.status': handleDeviceStatus,
   'system.notify': handleSystemNotify,
-  'camera.capture': handleCameraCapture,
-  'camera.pick': handleCameraPick,
+  'camera.snap': handleCameraSnap,
+  'photos.latest': handlePhotosLatest,
   'location.get': handleLocationGet,
   'clipboard.read': handleClipboardRead,
   'clipboard.write': handleClipboardWrite,
@@ -29,7 +29,7 @@ const HANDLERS: Record<string, NodeInvokeHandler> = {
 };
 
 /** All registered command names. Sent to gateway during connect handshake. */
-export const NODE_COMMANDS: string[] = Object.keys(HANDLERS);
+export const NODE_COMMANDS: string[] = Object.keys(PRIMARY_HANDLERS);
 
 /** Capability namespaces derived from command prefixes. */
 export const NODE_CAPS: string[] = [...new Set(NODE_COMMANDS.map((cmd) => cmd.split('.')[0]))];
@@ -65,7 +65,7 @@ export async function dispatchNodeInvoke(
       },
     };
   }
-  const handler = HANDLERS[command];
+  const handler = PRIMARY_HANDLERS[command];
   if (!handler) {
     return {
       ok: false,

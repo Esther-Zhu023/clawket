@@ -4,6 +4,7 @@ import { enrichAgentsWithIdentity } from '../../../services/agent-identity';
 import { extractText } from '../../../services/gateway';
 import { sessionKeysMatch } from '../../../utils/session-key';
 import {
+  isAssistantDeliveryMirrorMessage,
   isAssistantSilentReplyMessage,
   isSilentReplyPrefixText,
   parseMessageTimestamp,
@@ -329,6 +330,7 @@ export function useGatewayChatEvents(params: Params) {
         const latestMessages: UiMessage[] = [];
         for (const message of historyResult.messages) {
           if (message.role !== 'assistant') continue;
+          if (isAssistantDeliveryMirrorMessage(message)) continue;
           if (isAssistantSilentReplyMessage(message)) continue;
           const text = extractText(message.content as Parameters<typeof extractText>[0]);
           if (!text.trim()) continue;

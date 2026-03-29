@@ -12,6 +12,7 @@ import {
   extractImageUris,
   extractText,
   hasImageBlocks,
+  isAssistantDeliveryMirrorMessage,
   isAssistantSilentReplyMessage,
   parseMessageTimestamp,
   sanitizeUserMessageText,
@@ -493,6 +494,11 @@ export function useChatHistoryState({
         }
 
         if (message.role === 'assistant') {
+          if (isAssistantDeliveryMirrorMessage(message)) {
+            flushAssistantTurn();
+            prevRole = 'assistant';
+            continue;
+          }
           if (isAssistantSilentReplyMessage(message)) {
             flushAssistantTurn();
             prevRole = 'assistant';
@@ -842,6 +848,7 @@ export function useChatHistoryState({
       for (let index = history.length - 1; index >= 0; index--) {
         const message = history[index];
         if (message.role !== 'assistant') continue;
+        if (isAssistantDeliveryMirrorMessage(message)) continue;
         if (isAssistantSilentReplyMessage(message)) continue;
         const text = extractAssistantDisplayText(message.content);
         if (!text.trim()) continue;

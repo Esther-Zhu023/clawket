@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Application from 'expo-application';
-import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
-import * as MediaLibrary from 'expo-media-library';
 import * as StoreReview from 'expo-store-review';
 import { MenuAction, MenuView } from '@react-native-menu/menu';
 import {
@@ -44,6 +42,7 @@ import { isMacCatalyst } from '../../utils/platform';
 import { APP_PACKAGE_VERSION } from '../../constants/app-version';
 import { CLAWKET_GITHUB_REPO_URL } from '../../config/app-links';
 import { buildSupportEmailUrl, publicAppLinks } from '../../config/public';
+import { saveBundledImageToPhotoLibrary } from '../../services/photo-library';
 import { useConfigScreenController } from './hooks/useConfigScreenController';
 import type { ConfigStackParamList } from './ConfigTab';
 
@@ -91,7 +90,7 @@ function getSpeechRecognitionLanguageOptions(
 
 function getModeLabels(t: (key: string) => string): Record<GatewayMode, string> {
   return {
-    relay: t('Relay'),
+    relay: t('Remote'),
     custom: t('common:Custom'),
     local: t('common:Custom'),
     tailscale: t('common:Custom'),
@@ -306,27 +305,20 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
 
   const handleDownloadWecomQr = useCallback(async () => {
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync();
-      if (!perm.granted) {
+      const result = await saveBundledImageToPhotoLibrary(WECHAT_QR_IMAGE, 'wechat-group-qr');
+      if (result === 'permission_denied') {
         Alert.alert(
           t('Unable to save QR code'),
           t('Please allow photo library access and try again.'),
         );
         return;
       }
-
-      const resolved = Image.resolveAssetSource(WECHAT_QR_IMAGE);
-      const destination = new FileSystem.File(
-        FileSystem.Paths.cache,
-        `wechat-group-qr-${Date.now()}.jpg`,
-      );
-      const downloaded = await FileSystem.File.downloadFileAsync(resolved.uri, destination);
-      await MediaLibrary.saveToLibraryAsync(downloaded.uri);
       Alert.alert(
         t('Saved'),
         t('QR code saved to your photo library.'),
       );
-    } catch {
+    } catch (error) {
+      console.warn('[WeComQr] Failed to save QR code:', error);
       Alert.alert(
         t('Unable to save QR code'),
         t('Please try again later.'),

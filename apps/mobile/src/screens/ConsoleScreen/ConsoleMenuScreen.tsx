@@ -14,6 +14,7 @@ import { logAppTelemetry } from '../../services/app-telemetry';
 import { analyticsEvents } from '../../services/analytics/events';
 import { readAgentAvatar } from '../../services/agent-avatar';
 import { StorageService } from '../../services/storage';
+import { getDisplayAgentEmoji } from '../../utils/agent-emoji';
 import { formatConsoleHeartbeatAge } from '../../utils/console-heartbeat';
 import { parseGatewayRuntimeSettings } from '../../utils/gateway-settings';
 import { getConsoleHeaderRefreshState } from './hooks/consoleHeaderRefreshPolicy';
@@ -604,7 +605,7 @@ export function ConsoleMenuScreen(): React.JSX.Element {
   return (
     <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <View style={styles.headerRow}>
-        <Text style={styles.headerEmoji}>{data.agentEmoji}</Text>
+        <Text style={styles.headerEmoji}>{getDisplayAgentEmoji(data.agentEmoji)}</Text>
         <View style={styles.headerInfo}>
           <View style={styles.headerNameRow}>
             <Text style={[styles.headerName, { color: colors.text }]}>{data.agentName}</Text>
@@ -657,7 +658,7 @@ export function ConsoleMenuScreen(): React.JSX.Element {
         <TouchableOpacity style={styles.statItem} onPress={() => nav('ToolList', 'stats_tools')} activeOpacity={0.6}>
           <Text style={styles.statEmoji}>{'🔧'}</Text>
           <Text style={[styles.statValue, { color: colors.text }]}>{data.toolCalls != null ? String(data.toolCalls) : '—'}</Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>{t('Tools')}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>{t('Tool Calls')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.statItem} onPress={() => nav('SessionsBoard', 'stats_sessions')} activeOpacity={0.6}>
           <Text style={styles.statEmoji}>{'🗂️'}</Text>
@@ -765,9 +766,9 @@ export function ConsoleMenuScreen(): React.JSX.Element {
             colors={colors}
           />
           <GridCard
-            emoji="🔧"
+            emoji="🧰"
             value={data.tools != null ? String(data.tools) : '—'}
-            label={t('Tools')}
+            label={t('Available Tools')}
             onPress={() => nav('ToolList', 'grid_tools')}
             colors={colors}
           />

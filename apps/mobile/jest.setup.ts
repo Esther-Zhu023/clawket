@@ -17,6 +17,39 @@ jest.mock('expo-linking', () => ({
   createURL: jest.fn((path: string) => `clawket://${path}`),
 }));
 
+// Mock expo-camera
+jest.mock('expo-camera', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+
+  class MockCameraView extends React.Component {
+    takePictureAsync = jest.fn(async (options?: { quality?: number }) => ({
+      uri: 'file://camera-view.jpg',
+      width: 1920,
+      height: 1080,
+      format: 'jpg',
+      base64: options?.quality,
+    }));
+
+    componentDidMount() {
+      this.props.onCameraReady?.();
+    }
+
+    render() {
+      return React.createElement(View, this.props, this.props.children);
+    }
+  }
+
+  return {
+    Camera: {
+      getCameraPermissionsAsync: jest.fn(() => Promise.resolve({ granted: true, status: 'granted' })),
+      requestCameraPermissionsAsync: jest.fn(() => Promise.resolve({ granted: true, status: 'granted' })),
+      scanFromURLAsync: jest.fn(() => Promise.resolve([])),
+    },
+    CameraView: MockCameraView,
+  };
+});
+
 // Mock expo-localization
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'America/Los_Angeles' }]),
@@ -47,6 +80,10 @@ jest.mock('expo-clipboard', () => ({
 
 // Mock expo-image-picker
 jest.mock('expo-image-picker', () => ({
+  CameraType: {
+    front: 'front',
+    back: 'back',
+  },
   requestCameraPermissionsAsync: jest.fn(() =>
     Promise.resolve({ granted: true, status: 'granted' }),
   ),
@@ -56,23 +93,92 @@ jest.mock('expo-image-picker', () => ({
   launchCameraAsync: jest.fn(() =>
     Promise.resolve({
       canceled: false,
-      assets: [{ base64: 'abc123', width: 100, height: 200, uri: 'file://photo.jpg' }],
+      assets: [{
+        base64: 'abc123',
+        width: 2000,
+        height: 4000,
+        uri: 'file://photo.jpg',
+        mimeType: 'image/jpeg',
+        fileName: 'photo.jpg',
+      }],
     }),
   ),
   launchImageLibraryAsync: jest.fn(() =>
     Promise.resolve({
       canceled: false,
-      assets: [{ base64: 'def456', width: 300, height: 400, uri: 'file://picked.jpg' }],
+      assets: [{
+        base64: 'def456',
+        width: 300,
+        height: 400,
+        uri: 'file://picked.jpg',
+        mimeType: 'image/jpeg',
+        fileName: 'picked.jpg',
+        creationTime: Date.parse('2026-03-27T10:00:00.000Z'),
+      }],
     }),
   ),
 }));
 
 // Mock expo-media-library
 jest.mock('expo-media-library', () => ({
+  MediaType: {
+    photo: 'photo',
+  },
+  SortBy: {
+    creationTime: 'creationTime',
+  },
   requestPermissionsAsync: jest.fn(() =>
-    Promise.resolve({ status: 'granted' }),
+    Promise.resolve({ status: 'granted', granted: true }),
+  ),
+  getAssetsAsync: jest.fn(() =>
+    Promise.resolve({
+      assets: [{
+        id: 'asset-1',
+        filename: 'latest.jpg',
+        uri: 'file://latest.jpg',
+        mediaType: 'photo',
+        width: 3000,
+        height: 2000,
+        creationTime: Date.parse('2026-03-28T08:30:00.000Z'),
+        modificationTime: Date.parse('2026-03-28T08:30:00.000Z'),
+        duration: 0,
+      }],
+    }),
+  ),
+  getAssetInfoAsync: jest.fn((asset) =>
+    Promise.resolve({
+      ...asset,
+      localUri: asset?.uri ?? 'file://latest.jpg',
+    }),
   ),
   saveToLibraryAsync: jest.fn(() => Promise.resolve()),
+}));
+
+// Mock expo-image-manipulator
+jest.mock('expo-image-manipulator', () => ({
+  SaveFormat: {
+    JPEG: 'jpeg',
+    PNG: 'png',
+  },
+  manipulateAsync: jest.fn((uri: string, actions?: Array<{ resize?: { width?: number } }>, saveOptions?: {
+    compress?: number;
+    format?: string;
+    base64?: boolean;
+  }) => {
+    const requestedWidth = actions?.find((action) => action.resize?.width)?.resize?.width;
+    const width = requestedWidth ?? (uri.includes('latest') ? 3000 : 2000);
+    const height = uri.includes('latest')
+      ? Math.round(width * (2 / 3))
+      : Math.round(width * 2);
+    const format = saveOptions?.format === 'png' ? 'png' : 'jpg';
+    const base64 = uri.includes('latest') ? 'latest-base64' : 'camera-base64';
+    return Promise.resolve({
+      uri,
+      width,
+      height,
+      base64: saveOptions?.base64 ? `${base64}-${format}-${saveOptions?.compress ?? 1}` : undefined,
+    });
+  }),
 }));
 
 // Mock @react-native-menu/menu

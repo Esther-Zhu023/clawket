@@ -64,6 +64,11 @@ function normalizeCap(value: string): string {
   return value.trim().toLowerCase();
 }
 
+const DISPLAY_COMMAND_ALIASES: Partial<Record<NodeCapabilityToggleKey, string[]>> = {
+  'camera.snap': ['camera.capture'],
+  'photos.latest': ['camera.pick'],
+};
+
 async function invokeNodeRead(gateway: GatewayClient, nodeId: string, command: string): Promise<unknown> {
   const raw = await gateway.request<unknown>('node.invoke', {
     nodeId,
@@ -216,15 +221,15 @@ export function NodeDetailView({
   ]), [node, nodeId, t]);
 
   const actionRows = useMemo<{ key: NodeCapabilityToggleKey; label: string; description: string }[]>(() => [
-    { key: 'device.info', label: t('Device Info'), description: t('Share basic device information with agents.') },
-    { key: 'device.status', label: t('Device Status'), description: t('Share battery, storage and system status with agents.') },
-    { key: 'system.notify', label: t('Notifications'), description: t('Show a local notification on this device.') },
-    { key: 'camera.capture', label: t('Take Photo'), description: t('Open the camera and capture a new photo.') },
-    { key: 'camera.pick', label: t('Choose Photo'), description: t('Pick an existing photo from this device.') },
-    { key: 'location.get', label: t('Get Current Location'), description: t('Read this device\'s current location.') },
-    { key: 'clipboard.read', label: t('Read Clipboard'), description: t('Read the current clipboard text.') },
-    { key: 'clipboard.write', label: t('Write Clipboard'), description: t('Write text to the clipboard.') },
-    { key: 'media.save', label: t('Save To Photos'), description: t('Save generated images to this device.') },
+    { key: 'device.info', label: 'device.info', description: t('Share basic device information with agents.') },
+    { key: 'device.status', label: 'device.status', description: t('Share battery, storage and system status with agents.') },
+    { key: 'system.notify', label: 'system.notify', description: t('Show a local notification on this device.') },
+    { key: 'camera.snap', label: 'camera.snap', description: t('Open the camera and capture a new photo.') },
+    { key: 'photos.latest', label: 'photos.latest', description: t('Pick recent photos from this device.') },
+    { key: 'location.get', label: 'location.get', description: t('Read this device\'s current location.') },
+    { key: 'clipboard.read', label: 'clipboard.read', description: t('Read the current clipboard text.') },
+    { key: 'clipboard.write', label: 'clipboard.write', description: t('Write text to the clipboard.') },
+    { key: 'media.save', label: 'media.save', description: t('Save generated images to this device.') },
   ], [t]);
 
   if (loading) {
@@ -288,7 +293,9 @@ export function NodeDetailView({
                   </View>
                 );
               }
-              const available = advertisedCommands.has(item.key);
+              const aliases = DISPLAY_COMMAND_ALIASES[item.key] ?? [];
+              const available = advertisedCommands.has(item.key)
+                || aliases.some((alias) => advertisedCommands.has(alias));
               return (
                 <View key={item.key} style={rowStyle}>
                   <View style={styles.capabilityTextWrap}>

@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { ConnectionState } from "../../types";
 import { useAppTheme } from "../../theme";
 import { Radius, Shadow, Space } from "../../theme/tokens";
+import { extractDisplayAgentEmoji } from "../../utils/agent-emoji";
 import { IconButton } from "../ui";
 
 type Props = {
@@ -117,6 +118,7 @@ export function ChatHeader({
   const headerActionIconSize = 20;
   const headerActionIconColor = colors.textMuted;
   const headerActionStrokeWidth = 2;
+  const displayEmoji = extractDisplayAgentEmoji(agentEmoji);
   const refreshIconStyle = useMemo(
     () => ({
       transform: [
@@ -229,7 +231,7 @@ export function ChatHeader({
 
       <View style={styles.titleBlock}>
         <Text style={[styles.headerTitle, wallpaperActive && styles.headerTitleWallpaper]} numberOfLines={1}>
-          {agentEmoji ? `${agentEmoji} ${title}` : title}
+          {displayEmoji ? `${displayEmoji} ${title}` : title}
         </Text>
         <Animated.View style={{ opacity: subtitleFade }}>
           {showTyping ? (

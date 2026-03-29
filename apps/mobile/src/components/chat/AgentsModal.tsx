@@ -10,6 +10,7 @@ import type { GatewayMode } from '../../types';
 import { useAppTheme } from '../../theme';
 import { FontSize, FontWeight, Radius, Space } from '../../theme/tokens';
 import { AgentActivityStatus } from '../../screens/ChatScreen/hooks/agentActivity';
+import { getDisplayAgentEmoji } from '../../utils/agent-emoji';
 import { formatToolActivity } from '../../utils/tool-display';
 import { IconButton } from '../ui';
 
@@ -291,7 +292,7 @@ export function AgentsModal({
                           pressed && !agent.isCurrent && styles.rowPressed,
                         ]}
                       >
-                        <Text style={styles.emoji}>{agent.emoji || '🤖'}</Text>
+                        <Text style={styles.emoji}>{getDisplayAgentEmoji(agent.emoji)}</Text>
                         <View style={styles.info}>
                           <View style={styles.agentTitleRow}>
                             <Text style={styles.name} numberOfLines={1}>{agent.displayName}</Text>

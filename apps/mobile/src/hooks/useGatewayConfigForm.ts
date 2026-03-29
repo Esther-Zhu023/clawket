@@ -486,12 +486,12 @@ export function useGatewayConfigForm({ gateway, initialConfig, debugMode, onSave
     if (!target) return;
 
     Alert.alert(
-      'Delete Gateway',
-      `Are you sure you want to delete "${target.name}"?`,
+      tConfig('Delete Gateway'),
+      tConfig('Are you sure you want to delete "{{name}}"?', { name: target.name }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('Cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('Delete'),
           style: 'destructive',
           onPress: async () => {
             const nextConfigs = configs.filter((item) => item.id !== configId);
@@ -515,7 +515,7 @@ export function useGatewayConfigForm({ gateway, initialConfig, debugMode, onSave
         },
       ],
     );
-  }, [activeConfigId, configs, debugMode, gateway, onReset, reconnectGateway]);
+  }, [activeConfigId, configs, debugMode, gateway, onReset, reconnectGateway, t, tConfig]);
 
   const resetDevice = useCallback(() => {
     Alert.alert(

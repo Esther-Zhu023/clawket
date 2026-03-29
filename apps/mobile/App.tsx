@@ -36,6 +36,7 @@ import {
 import { AppContextProvider, useAppContext } from './src/contexts/AppContext';
 import { GlobalLoadingOverlayProvider, useGlobalLoadingOverlay } from './src/contexts/GlobalLoadingOverlayContext';
 import { GatewayScannerProvider } from './src/contexts/GatewayScannerContext';
+import { NodeCameraCaptureProvider } from './src/contexts/NodeCameraCaptureContext';
 import { ProPaywallProvider, useProPaywall } from './src/contexts/ProPaywallContext';
 import { GlobalLoadingOverlay } from './src/components/ui';
 import { DebugOverlay } from './src/components/chat/DebugOverlay';
@@ -1004,6 +1005,7 @@ function AppContent({
     <AppContextProvider value={appContextValue}>
     <GlobalLoadingOverlayProvider>
     <GatewayScannerProvider>
+    <NodeCameraCaptureProvider>
       <NavigationContainer
         ref={rootNavigationRef}
         theme={navigationTheme}
@@ -1154,6 +1156,7 @@ function AppContent({
       <OfficeDebugOverlay />
       <GlobalGatewayOverlay />
       <GlobalProPaywallOverlay />
+    </NodeCameraCaptureProvider>
     </GatewayScannerProvider>
     </GlobalLoadingOverlayProvider>
     </AppContextProvider>

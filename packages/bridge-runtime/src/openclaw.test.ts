@@ -12,6 +12,7 @@ import {
   readOpenClawPermissions,
   readOpenClawInfo,
   restartOpenClawGateway,
+  resolveGatewayUrl,
   runOpenClawDoctor,
   runOpenClawDoctorFix,
   resolveGatewayAuth,
@@ -102,6 +103,48 @@ describe('openclaw auth resolution', () => {
       password: 'password-from-env',
       label: 'password',
     });
+  });
+
+  it('prefers env-provided gateway port over config port', () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_PORT', '29999');
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.readFileSync.mockReturnValue(JSON.stringify({
+      gateway: {
+        port: 18789,
+        auth: {
+          token: 'gateway-token',
+        },
+      },
+    }));
+
+    expect(readOpenClawInfo()).toMatchObject({
+      configFound: true,
+      gatewayPort: 29999,
+      token: 'gateway-token',
+    });
+    expect(resolveGatewayUrl()).toBe('ws://127.0.0.1:29999');
+  });
+
+  it('uses env-provided gateway port when config is absent', () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_PORT', '29999');
+    fsMock.existsSync.mockReturnValue(false);
+
+    expect(readOpenClawInfo()).toMatchObject({
+      configFound: false,
+      gatewayPort: 29999,
+    });
+    expect(resolveGatewayUrl()).toBe('ws://127.0.0.1:29999');
+  });
+
+  it('falls back to the default gateway port when env port is invalid', () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_PORT', '0');
+    fsMock.existsSync.mockReturnValue(false);
+
+    expect(readOpenClawInfo()).toMatchObject({
+      configFound: false,
+      gatewayPort: null,
+    });
+    expect(resolveGatewayUrl()).toBe('ws://127.0.0.1:18789');
   });
 
   it('falls back to /root/.openclaw when the user home config is absent', () => {

@@ -27,6 +27,7 @@ import { PendingImage, UiMessage } from "../../../types/chat";
 import {
   extractAssistantDisplayText,
   extractText,
+  isAssistantDeliveryMirrorMessage,
   isAssistantSilentReplyMessage,
   parseMessageTimestamp,
   sessionLabel,
@@ -69,6 +70,7 @@ import {
 } from "./chatControllerUtils";
 import { useChatComposerDraft } from "./useChatComposerDraft";
 import { useChatAgentIdentity } from "./useChatAgentIdentity";
+import { useBufferedDebugLog } from "./useBufferedDebugLog";
 
 type PendingImageWithFile = PendingImage & { fileName?: string };
 
@@ -92,7 +94,6 @@ export function useChatController({
   const [isPreparingSend, setIsPreparingSend] = useState(false);
   const [pairingPending, setPairingPending] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [debugLog, setDebugLog] = useState<string[]>([]);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [compactionNotice, setCompactionNotice] = useState<string | null>(null);
   const [activityLabel, setActivityLabel] = useState<string | null>(null);
@@ -172,6 +173,7 @@ export function useChatController({
 
   const preview = useChatImagePreview();
   const showDebug = debugMode ?? false;
+  const { logs: debugLog, appendDebugLog: dbg } = useBufferedDebugLog(showDebug);
   const hasGatewayConfig = hasActiveGatewayConfig(config);
 
   const sessionKeyRef = useRef<string | null>(null);
@@ -236,13 +238,6 @@ export function useChatController({
   const resetAgentActiveCount = useCallback(() => setAgentActiveCount(0), []);
   const compactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const silentCommandRunIdsRef = useRef<Set<string>>(new Set());
-
-  const dbg = useCallback((msg: string) => {
-    setDebugLog((prev) => [
-      ...prev.slice(-30),
-      `${new Date().toLocaleTimeString()} ${msg}`,
-    ]);
-  }, []);
 
   const {
     toggleVoiceInput,
@@ -598,6 +593,7 @@ export function useChatController({
         ) {
           const message = historyResult.messages[index];
           if (message.role !== "assistant") continue;
+          if (isAssistantDeliveryMirrorMessage(message)) continue;
           if (isAssistantSilentReplyMessage(message)) continue;
           const text = extractAssistantDisplayText(message.content);
           if (!text.trim()) continue;
@@ -1731,7 +1727,10 @@ export function useChatController({
                   );
                   const assistant = [...historyResult.messages]
                     .reverse()
-                    .find((item) => item.role === "assistant");
+                    .find((item) => (
+                      item.role === "assistant"
+                      && !isAssistantDeliveryMirrorMessage(item)
+                    ));
                   finalText = extractAssistantDisplayText(assistant?.content);
                 } catch {
                   finalText = latestText;

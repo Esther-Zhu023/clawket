@@ -199,6 +199,53 @@ describe('useChatHistoryState', () => {
     expect(result.current.state.messages.map((message) => message.text)).toEqual(['reply']);
   });
 
+  it('filters delivery-mirror assistant history entries during loadHistory', async () => {
+    const gateway = {
+      listSessions: jest.fn().mockResolvedValue([]),
+      fetchHistory: jest.fn().mockResolvedValue({
+        messages: [
+          {
+            role: 'assistant',
+            provider: 'openclaw',
+            model: 'delivery-mirror',
+            content: [{ type: 'text', text: 'reply' }],
+            timestamp: 1_000,
+          },
+          {
+            role: 'assistant',
+            provider: 'openai',
+            model: 'gpt-5',
+            content: [{ type: 'text', text: 'reply' }],
+            timestamp: 1_001,
+          },
+        ],
+      }),
+      getConnectionState: jest.fn().mockReturnValue('ready'),
+    };
+
+    const { result } = renderHook(() => {
+      const sessionKeyRef = useRef<string | null>('agent:main:main');
+      const state = useChatHistoryState({
+        gateway: gateway as any,
+        dbg: jest.fn(),
+        t: translate,
+        sessionKeyRef,
+        mainSessionKey: 'agent:main:main',
+        gatewayConfigId: null,
+        currentAgentId: 'main',
+      });
+      return { state, sessionKeyRef };
+    });
+
+    await act(async () => {
+      result.current.state.setSessionKey('agent:main:main');
+      await result.current.state.loadHistory('agent:main:main', 12);
+    });
+
+    expect(result.current.state.messages.map((message) => message.text)).toEqual(['reply']);
+    expect(result.current.state.messages[0]?.modelLabel).toBe('openai/gpt-5');
+  });
+
   it('deduplicates concurrent reconcileLatestAssistantFromHistory calls for the same session', async () => {
     const fetchHistoryDeferred = deferred<{ messages: Array<{ role: string; content: string; timestamp?: number }> }>();
     const gateway = {
@@ -247,6 +294,55 @@ describe('useChatHistoryState', () => {
     });
 
     expect(result.current.state.messages.map((message) => message.text)).toEqual(['reply']);
+  });
+
+  it('ignores delivery-mirror entries when reconciling the latest assistant from history', async () => {
+    const gateway = {
+      listSessions: jest.fn().mockResolvedValue([]),
+      fetchHistory: jest.fn().mockResolvedValue({
+        messages: [
+          {
+            role: 'assistant',
+            provider: 'openai',
+            model: 'gpt-5',
+            content: [{ type: 'text', text: 'real reply' }],
+            timestamp: 1_000,
+          },
+          {
+            role: 'assistant',
+            provider: 'openclaw',
+            model: 'delivery-mirror',
+            content: [{ type: 'text', text: 'real reply' }],
+            timestamp: 1_001,
+          },
+        ],
+      }),
+      getConnectionState: jest.fn().mockReturnValue('ready'),
+    };
+
+    const { result } = renderHook(() => {
+      const sessionKeyRef = useRef<string | null>('agent:main:main');
+      const state = useChatHistoryState({
+        gateway: gateway as any,
+        dbg: jest.fn(),
+        t: translate,
+        sessionKeyRef,
+        mainSessionKey: 'agent:main:main',
+        gatewayConfigId: null,
+        currentAgentId: 'main',
+      });
+      return { state, sessionKeyRef };
+    });
+
+    await act(async () => {
+      result.current.state.setSessionKey('agent:main:main');
+      await result.current.state.reconcileLatestAssistantFromHistory('agent:main:main', {
+        appendIfMissing: true,
+      });
+    });
+
+    expect(result.current.state.messages.map((message) => message.text)).toEqual(['real reply']);
+    expect(result.current.state.messages[0]?.modelLabel).toBe('openai/gpt-5');
   });
 
   it('does not merge reconcile requests with different append semantics', async () => {

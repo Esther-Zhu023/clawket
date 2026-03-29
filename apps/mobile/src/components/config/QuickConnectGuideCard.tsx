@@ -33,12 +33,12 @@ export function QuickConnectGuideCard({ style, variant = 'numbered' }: Props): R
     [pairMode, t],
   );
   const pairModeTabs = useMemo<SegmentedTabItem<QuickConnectPairMode>[]>(() => [
-    { key: 'relay', label: t('Relay', { ns: 'config' }) },
-    { key: 'local', label: t('Local', { ns: 'config' }) },
+    { key: 'relay', label: t('Remote', { ns: 'config' }) },
+    { key: 'local', label: t('Same Wi-Fi', { ns: 'config' }) },
   ], [t]);
   const pairModeDescription = pairMode === 'relay'
-    ? t('Relay connection description', { ns: 'config' })
-    : t('Local connection description', { ns: 'config' });
+    ? t('Remote connection description', { ns: 'config' })
+    : t('Same Wi-Fi connection description', { ns: 'config' });
 
   const toggleManual = useCallback(() => {
     setManualExpanded((prev) => !prev);
@@ -74,19 +74,19 @@ export function QuickConnectGuideCard({ style, variant = 'numbered' }: Props): R
       body: <CopyableCommand command={MANUAL_INSTALL_CMD} />,
     },
     {
-      title: t('Default pairing command'),
+      title: t('Remote connection command'),
       body: (
         <>
           <CopyableCommand command={MANUAL_PAIR_CMD} />
           <Text style={styles.pairModeHint}>
-            {t('Use this if you are connecting over the internet or across different networks.')}
+            {t('Use this when your phone and your OpenClaw host device are not on the same Wi-Fi network.')}
           </Text>
 
           <View style={styles.pairModeGroup}>
-            <Text style={styles.pairModeTitle}>{t('Local network pairing')}</Text>
+            <Text style={styles.pairModeTitle}>{t('Same Wi-Fi pairing')}</Text>
             <CopyableCommand command={MANUAL_PAIR_LOCAL_CMD} />
             <Text style={styles.pairModeHint}>
-              {t('Use this when your phone and host are on the same LAN for lower latency and a smoother experience.')}
+              {t('Use this when your phone and host are on the same Wi-Fi for lower latency and a smoother experience.')}
             </Text>
           </View>
         </>

@@ -13,8 +13,8 @@ describe('normalizeNodeCapabilityToggles', () => {
       'device.info': false,
       'device.status': true,
       'system.notify': false,
-      'camera.capture': false,
-      'camera.pick': true,
+      'camera.snap': false,
+      'photos.latest': true,
       'location.get': true,
       'clipboard.read': false,
       'clipboard.write': true,
@@ -23,12 +23,29 @@ describe('normalizeNodeCapabilityToggles', () => {
       'device.info': false,
       'device.status': true,
       'system.notify': false,
-      'camera.capture': false,
-      'camera.pick': true,
+      'camera.snap': false,
+      'photos.latest': true,
       'location.get': true,
       'clipboard.read': false,
       'clipboard.write': true,
       'media.save': false,
+    });
+  });
+
+  it('migrates old camera command keys to the official names', () => {
+    expect(normalizeNodeCapabilityToggles({
+      'camera.capture': false,
+      'camera.pick': true,
+    })).toEqual({
+      'device.info': true,
+      'device.status': true,
+      'system.notify': true,
+      'camera.snap': false,
+      'photos.latest': true,
+      'location.get': true,
+      'clipboard.read': true,
+      'clipboard.write': true,
+      'media.save': true,
     });
   });
 
@@ -43,8 +60,8 @@ describe('normalizeNodeCapabilityToggles', () => {
       'device.info': true,
       'device.status': true,
       'system.notify': false,
-      'camera.capture': false,
-      'camera.pick': false,
+      'camera.snap': false,
+      'photos.latest': false,
       'location.get': true,
       'clipboard.read': false,
       'clipboard.write': false,

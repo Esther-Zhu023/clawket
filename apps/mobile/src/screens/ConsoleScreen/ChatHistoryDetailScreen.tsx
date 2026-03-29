@@ -12,9 +12,11 @@ import {
   CachedMessage,
   CachedSessionMeta,
   ChatCacheService,
+  type CachedSessionSnapshot,
 } from "../../services/chat-cache";
 import { useAppTheme } from "../../theme";
 import { FontSize, FontWeight, Radius, Space } from "../../theme/tokens";
+import { extractDisplayAgentEmoji } from "../../utils/agent-emoji";
 import { splitHighlightSegments } from "../../utils/text-highlight";
 import type { ConsoleStackParamList } from "./ConsoleTab";
 
@@ -50,6 +52,23 @@ function resolveMessageTimestamp(message: CachedMessage): number | undefined {
     }
   }
   return undefined;
+}
+
+function mergeLineageMessages(
+  lineage: CachedSessionSnapshot[],
+): CachedMessage[] {
+  const merged: CachedMessage[] = [];
+  const seenIds = new Set<string>();
+
+  for (const snapshot of lineage) {
+    for (const message of snapshot.messages) {
+      if (seenIds.has(message.id)) continue;
+      seenIds.add(message.id);
+      merged.push(message);
+    }
+  }
+
+  return merged;
 }
 
 function RoleIcon({ role, colors }: { role: string; colors: any }) {
@@ -184,11 +203,12 @@ export function ChatHistoryDetailScreen(): React.JSX.Element {
   const colors = theme.colors;
   const navigation = useNavigation<Navigation>();
   const route = useRoute<Route>();
-  const { storageKey, initialQuery } = route.params;
+  const { storageKey, initialQuery, sessionRefs } = route.params;
   const normalizedInitialQuery = initialQuery?.trim() ?? "";
 
   const [meta, setMeta] = useState<CachedSessionMeta | null>(null);
   const [messages, setMessages] = useState<CachedMessage[]>([]);
+  const [snapshotCount, setSnapshotCount] = useState(1);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState(normalizedInitialQuery);
 
@@ -207,13 +227,40 @@ export function ChatHistoryDetailScreen(): React.JSX.Element {
       setMeta(session ?? null);
 
       if (session) {
-        const msgs = await ChatCacheService.getMessagesByStorageKey(
-          session.storageKey,
+        const refs = sessionRefs?.length
+          ? sessionRefs
+          : [{
+              gatewayConfigId: session.gatewayConfigId,
+              agentId: session.agentId,
+              sessionKey: session.sessionKey,
+            }];
+        const lineageParts = await Promise.all(
+          refs.map((ref) =>
+            ChatCacheService.getSessionLineage(
+              ref.gatewayConfigId,
+              ref.agentId,
+              ref.sessionKey,
+            ),
+          ),
         );
+        const lineage = lineageParts
+          .flat()
+          .sort(
+            (a, b) =>
+              (a.meta.firstMessageMs ?? a.meta.lastMessageMs ?? a.meta.updatedAt) -
+                (b.meta.firstMessageMs ?? b.meta.lastMessageMs ?? b.meta.updatedAt) ||
+              a.meta.updatedAt - b.meta.updatedAt,
+          );
+        if (!active) return;
+        setSnapshotCount(Math.max(1, lineage.length));
+        const latestMeta = lineage[lineage.length - 1]?.meta ?? session;
+        setMeta(latestMeta);
+        const msgs = mergeLineageMessages(lineage);
         if (!active) return;
         setMessages(msgs);
       } else if (active) {
         setMessages([]);
+        setSnapshotCount(1);
       }
       if (active) {
         setLoading(false);
@@ -225,7 +272,7 @@ export function ChatHistoryDetailScreen(): React.JSX.Element {
     return () => {
       active = false;
     };
-  }, [storageKey]);
+  }, [sessionRefs, storageKey]);
 
   const filtered = useMemo(() => {
     if (!searchText.trim()) return messages;
@@ -289,9 +336,10 @@ export function ChatHistoryDetailScreen(): React.JSX.Element {
     [colors, searchText],
   );
 
+  const displayEmoji = extractDisplayAgentEmoji(meta?.agentEmoji);
   const title = meta
-    ? meta.agentEmoji
-      ? `${meta.agentEmoji} ${meta.agentName || t("common:Agent")}`
+    ? displayEmoji
+      ? `${displayEmoji} ${meta.agentName || t("common:Agent")}`
       : meta.agentName || t("Messages")
     : t("Messages");
 
@@ -315,8 +363,18 @@ export function ChatHistoryDetailScreen(): React.JSX.Element {
       {meta && (
         <View style={styles.statsRow}>
           <Text style={[styles.statText, { color: colors.textMuted }]}>
-            {t("{{count}} messages", { count: meta.messageCount })}
+            {t("{{count}} messages", { count: messages.length })}
           </Text>
+          {snapshotCount > 1 && (
+            <Text style={[styles.statText, { color: colors.textSubtle }]}>
+              {t(
+                snapshotCount > 1
+                  ? "{{count}} snapshots"
+                  : "{{count}} snapshot",
+                { count: snapshotCount },
+              )}
+            </Text>
+          )}
           {meta.firstMessageMs && (
             <Text style={[styles.statText, { color: colors.textSubtle }]}>
               {formatDate(meta.firstMessageMs)} -{" "}

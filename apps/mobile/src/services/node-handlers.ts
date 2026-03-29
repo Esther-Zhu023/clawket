@@ -1,11 +1,47 @@
 import { AppState, Platform } from 'react-native';
 import { getRuntimePlatform, getRuntimeSystemName, isMacCatalyst } from '../utils/platform';
+import {
+  NodeCameraCaptureError,
+  requestNodeCameraCapture,
+} from './node-camera-capture';
 
 export type HandlerResult =
   | { ok: true; payload: unknown }
   | { ok: false; error: { code: string; message: string } };
 
 export type NodeInvokeHandler = (params: unknown) => Promise<HandlerResult>;
+
+type PickerAsset = {
+  base64?: string | null;
+  width?: number | null;
+  height?: number | null;
+  uri?: string | null;
+  mimeType?: string | null;
+  fileName?: string | null;
+  creationTime?: number | null;
+};
+
+type NormalizedImage = {
+  format: 'jpg' | 'png';
+  base64: string;
+  width: number;
+  height: number;
+};
+
+type CameraSnapParams = {
+  facing: 'front' | 'back';
+  maxWidth: number;
+  quality: number;
+  format: 'jpg';
+  delayMs: number;
+  deviceId?: string;
+};
+
+type PhotosLatestParams = {
+  limit: number;
+  maxWidth: number;
+  quality: number;
+};
 
 function parseParams(params: unknown): Record<string, unknown> {
   return params && typeof params === 'object' ? (params as Record<string, unknown>) : {};
@@ -19,10 +55,172 @@ function invalidParams(message: string): HandlerResult {
   return { ok: false, error: { code: 'INVALID_PARAMS', message } };
 }
 
+function unavailable(message: string, code = 'UNAVAILABLE'): HandlerResult {
+  return { ok: false, error: { code, message } };
+}
+
+function inferImageFormat(asset: PickerAsset): string {
+  const fromMime = typeof asset.mimeType === 'string' ? asset.mimeType.trim().toLowerCase() : '';
+  if (fromMime === 'image/png') return 'png';
+  if (fromMime === 'image/jpeg' || fromMime === 'image/jpg') return 'jpg';
+
+  const fileName = typeof asset.fileName === 'string' ? asset.fileName : '';
+  const uri = typeof asset.uri === 'string' ? asset.uri : '';
+  const match = (fileName || uri).match(/\.([a-z0-9]+)(?:$|\?)/i);
+  const ext = match?.[1]?.toLowerCase();
+  if (ext === 'png') return 'png';
+  return 'jpg';
+}
+
+function toLegacyImagePayload(asset: PickerAsset): Record<string, unknown> {
+  return {
+    base64: asset.base64 ?? undefined,
+    width: asset.width ?? undefined,
+    height: asset.height ?? undefined,
+    uri: asset.uri ?? undefined,
+  };
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, value))
+    : fallback;
+}
+
+function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.floor(value)))
+    : fallback;
+}
+
+function normalizeCameraFacing(value: unknown): 'front' | 'back' | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'front' || normalized === 'back') {
+    return normalized;
+  }
+  return null;
+}
+
+function parseCameraSnapParams(params: unknown): CameraSnapParams | HandlerResult {
+  const record = parseParams(params);
+  const facing = record.facing == null ? 'front' : normalizeCameraFacing(record.facing);
+  if (!facing) {
+    return invalidParams('Invalid param: facing must be "front" or "back".');
+  }
+
+  const formatRaw = record.format == null ? 'jpg' : String(record.format).trim().toLowerCase();
+  if (formatRaw !== 'jpg' && formatRaw !== 'jpeg') {
+    return invalidParams('Invalid param: camera.snap currently supports only format "jpg".');
+  }
+
+  const deviceId = typeof record.deviceId === 'string' && record.deviceId.trim()
+    ? record.deviceId.trim()
+    : undefined;
+
+  return {
+    facing,
+    maxWidth: clampInteger(record.maxWidth, 1600, 240, 4096),
+    quality: clampNumber(record.quality, 0.95, 0.1, 1.0),
+    format: 'jpg',
+    delayMs: clampInteger(record.delayMs, 0, 0, 60_000),
+    ...(deviceId ? { deviceId } : {}),
+  };
+}
+
+function parsePhotosLatestParams(params: unknown): PhotosLatestParams {
+  const record = parseParams(params);
+  return {
+    limit: clampInteger(record.limit, 1, 1, 20),
+    maxWidth: clampInteger(record.maxWidth, 1600, 240, 4096),
+    quality: clampNumber(record.quality, 0.85, 0.1, 1.0),
+  };
+}
+
+function toOfficialImagePayload(asset: NormalizedImage): Record<string, unknown> {
+  return {
+    format: asset.format,
+    base64: asset.base64,
+    width: asset.width,
+    height: asset.height,
+  };
+}
+
+function createdAtPayload(creationTime: number | null | undefined): Record<string, unknown> {
+  return typeof creationTime === 'number' && Number.isFinite(creationTime) && creationTime > 0
+    ? { createdAt: new Date(creationTime).toISOString() }
+    : {};
+}
+
+async function wait(delayMs: number): Promise<void> {
+  if (delayMs <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function captureCameraAsset(options?: {
+  facing?: 'front' | 'back';
+  quality?: number;
+  includeBase64?: boolean;
+}): Promise<PickerAsset | null | { canceled: true }> {
+  const ImagePicker = getImagePicker();
+  const launchOptions = {
+    base64: options?.includeBase64 ?? true,
+    quality: options?.quality ?? 0.8,
+    ...(options?.facing && ImagePicker.CameraType
+      ? {
+        cameraType: options.facing === 'front'
+          ? ImagePicker.CameraType.front
+          : ImagePicker.CameraType.back,
+      }
+      : {}),
+  };
+  const result = isMacCatalyst
+    ? await ImagePicker.launchImageLibraryAsync({ ...launchOptions, mediaTypes: ['images'] })
+    : await (async () => {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        return null;
+      }
+      return ImagePicker.launchCameraAsync(launchOptions);
+    })();
+
+  if (!result) {
+    return null;
+  }
+  if (result.canceled || !result.assets?.length) {
+    return { canceled: true };
+  }
+  return result.assets[0] as PickerAsset;
+}
+
+async function pickPhotoAssets(limit = 1): Promise<PickerAsset[] | null | { canceled: true }> {
+  const ImagePicker = getImagePicker();
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) {
+    return null;
+  }
+
+  const allowsMultipleSelection = limit > 1;
+  const result = await ImagePicker.launchImageLibraryAsync({
+    base64: true,
+    quality: 0.8,
+    mediaTypes: ['images'],
+    ...(allowsMultipleSelection ? { allowsMultipleSelection: true, selectionLimit: limit } : {}),
+  });
+  if (result.canceled || !result.assets?.length) {
+    return { canceled: true };
+  }
+  return result.assets as PickerAsset[];
+}
+
 // Lazy-load native modules to avoid crash-on-import at app startup.
 
 function getImagePicker() {
   return require('expo-image-picker') as typeof import('expo-image-picker');
+}
+
+function getImageManipulator() {
+  return require('expo-image-manipulator') as typeof import('expo-image-manipulator');
 }
 
 function getClipboard() {
@@ -267,43 +465,120 @@ export async function handleSystemNotify(params: unknown): Promise<HandlerResult
 // ── camera ──────────────────────────────────────────────────────────────────
 
 export async function handleCameraCapture(): Promise<HandlerResult> {
-  const ImagePicker = getImagePicker();
-  const result = isMacCatalyst
-    ? await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.8, mediaTypes: ['images'] })
-    : await (async () => {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) {
-        return null;
-      }
-      return ImagePicker.launchCameraAsync({ base64: true, quality: 0.8 });
-    })();
+  const result = await captureCameraAsset();
   if (!result) {
     return permissionDenied('Camera permission was denied.');
   }
-  if (result.canceled || !result.assets?.length) {
+  if ('canceled' in result) {
     return { ok: true, payload: { canceled: true } };
   }
-  const asset = result.assets[0];
   return {
     ok: true,
-    payload: { base64: asset.base64, width: asset.width, height: asset.height, uri: asset.uri },
+    payload: toLegacyImagePayload(result),
   };
 }
 
 export async function handleCameraPick(): Promise<HandlerResult> {
-  const ImagePicker = getImagePicker();
-  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) {
+  const result = await pickPhotoAssets(1);
+  if (!result) {
     return permissionDenied('Media library permission was denied.');
   }
-  const result = await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.8 });
-  if (result.canceled || !result.assets?.length) {
+  if ('canceled' in result) {
     return { ok: true, payload: { canceled: true } };
   }
-  const asset = result.assets[0];
   return {
     ok: true,
-    payload: { base64: asset.base64, width: asset.width, height: asset.height, uri: asset.uri },
+    payload: toLegacyImagePayload(result[0] ?? {}),
+  };
+}
+
+export async function handleCameraSnap(params?: unknown): Promise<HandlerResult> {
+  const parsed = parseCameraSnapParams(params);
+  if ('ok' in parsed) {
+    return parsed;
+  }
+  if (parsed.deviceId) {
+    return unavailable('camera.snap deviceId is not supported by this Clawket node yet.', 'UNSUPPORTED_FEATURE');
+  }
+
+  await wait(parsed.delayMs);
+  let captureResult: { uri: string; width: number; height: number; format: 'jpg' | 'png' };
+  try {
+    captureResult = await requestNodeCameraCapture({
+      facing: parsed.facing,
+      quality: parsed.quality,
+    });
+  } catch (error) {
+    if (error instanceof NodeCameraCaptureError) {
+      if (error.code === 'PERMISSION_DENIED') {
+        return permissionDenied(error.message);
+      }
+      return unavailable(error.message, error.code);
+    }
+    const message = error instanceof Error ? error.message : 'Camera capture failed.';
+    return unavailable(message);
+  }
+  const normalized = await normalizeImageUri(captureResult.uri, {
+    width: captureResult.width,
+    height: captureResult.height,
+    maxWidth: parsed.maxWidth,
+    quality: parsed.quality,
+    format: parsed.format,
+  });
+  return {
+    ok: true,
+    payload: toOfficialImagePayload(normalized),
+  };
+}
+
+export async function handlePhotosLatest(params: unknown): Promise<HandlerResult> {
+  const parsed = parsePhotosLatestParams(params);
+  const MediaLibrary = getMediaLibrary();
+  const perm = await MediaLibrary.requestPermissionsAsync();
+  if (perm.status !== 'granted') {
+    return permissionDenied('Media library permission was denied.');
+  }
+
+  const assetsPage = await MediaLibrary.getAssetsAsync({
+    first: parsed.limit,
+    sortBy: [[MediaLibrary.SortBy?.creationTime ?? 'creationTime', false]],
+    mediaType: MediaLibrary.MediaType?.photo ?? 'photo',
+  });
+  const assets = Array.isArray(assetsPage.assets) ? assetsPage.assets : [];
+  if (assets.length === 0) {
+    return { ok: true, payload: { photos: [] } };
+  }
+
+  const photos: Array<Record<string, unknown>> = [];
+  for (const asset of assets) {
+    const info = await MediaLibrary.getAssetInfoAsync(asset);
+    const sourceUri =
+      typeof info.localUri === 'string' && info.localUri
+        ? info.localUri
+        : typeof info.uri === 'string' && info.uri
+          ? info.uri
+          : null;
+    if (!sourceUri) {
+      continue;
+    }
+    const normalized = await normalizeImageUri(sourceUri, {
+      width: asset.width,
+      height: asset.height,
+      maxWidth: parsed.maxWidth,
+      quality: parsed.quality,
+      format: 'jpg',
+    });
+    photos.push({
+      ...toOfficialImagePayload(normalized),
+      ...createdAtPayload(asset.creationTime),
+    });
+  }
+
+  return {
+    ok: true,
+    payload: {
+      photos,
+    },
   };
 }
 
@@ -388,4 +663,63 @@ export async function handleMediaSave(params: unknown): Promise<HandlerResult> {
   });
   await ML.saveToLibraryAsync(tmpUri);
   return { ok: true, payload: { saved: true } };
+}
+
+async function normalizeImageAsset(
+  asset: PickerAsset,
+  options: {
+    maxWidth: number;
+    quality: number;
+    format: 'jpg' | 'png';
+  },
+): Promise<NormalizedImage> {
+  const sourceUri = typeof asset.uri === 'string' && asset.uri ? asset.uri : null;
+  if (!sourceUri) {
+    return {
+      format: options.format,
+      base64: asset.base64 ?? '',
+      width: typeof asset.width === 'number' ? asset.width : 0,
+      height: typeof asset.height === 'number' ? asset.height : 0,
+    };
+  }
+  return normalizeImageUri(sourceUri, {
+    width: typeof asset.width === 'number' ? asset.width : undefined,
+    height: typeof asset.height === 'number' ? asset.height : undefined,
+    maxWidth: options.maxWidth,
+    quality: options.quality,
+    format: options.format,
+  });
+}
+
+async function normalizeImageUri(
+  uri: string,
+  options: {
+    width?: number;
+    height?: number;
+    maxWidth: number;
+    quality: number;
+    format: 'jpg' | 'png';
+  },
+): Promise<NormalizedImage> {
+  const ImageManipulator = getImageManipulator();
+  const resizeWidth =
+    typeof options.width === 'number' && options.width > options.maxWidth
+      ? options.maxWidth
+      : undefined;
+  const actions = resizeWidth ? [{ resize: { width: resizeWidth } }] : [];
+  const saveFormat =
+    options.format === 'png'
+      ? ImageManipulator.SaveFormat.PNG
+      : ImageManipulator.SaveFormat.JPEG;
+  const result = await ImageManipulator.manipulateAsync(uri, actions, {
+    base64: true,
+    compress: options.quality,
+    format: saveFormat,
+  });
+  return {
+    format: options.format,
+    base64: result.base64 ?? '',
+    width: result.width,
+    height: result.height,
+  };
 }

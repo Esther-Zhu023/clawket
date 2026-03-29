@@ -82,6 +82,13 @@ export function isAssistantSilentReplyMessage(message: unknown): boolean {
   return isSilentReplyText(text) || isSilentReplyPrefixText(text);
 }
 
+export function isAssistantDeliveryMirrorMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const entry = message as Record<string, unknown>;
+  if (entry.role !== 'assistant') return false;
+  return entry.provider === 'openclaw' && entry.model === 'delivery-mirror';
+}
+
 function stripWrappedFinalTag(text: string): string {
   let result = text;
 

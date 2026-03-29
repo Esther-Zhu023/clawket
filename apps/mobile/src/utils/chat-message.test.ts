@@ -8,6 +8,7 @@ import {
   extractImageRawData,
   hasImageBlocks,
   extractIdempotencyKey,
+  isAssistantDeliveryMirrorMessage,
   isAssistantSilentReplyMessage,
   isSilentReplyPrefixText,
   isSilentReplyText,
@@ -164,6 +165,26 @@ describe('silent reply helpers', () => {
 
   it('strips assistant final tags from previews before trimming', () => {
     expect(sanitizeSilentPreviewText('<final>\nhello\n</final>')).toBe('hello');
+  });
+
+  it('detects assistant delivery-mirror transcript messages without matching normal replies', () => {
+    expect(isAssistantDeliveryMirrorMessage({
+      role: 'assistant',
+      provider: 'openclaw',
+      model: 'delivery-mirror',
+      content: [{ type: 'text', text: 'mirrored reply' }],
+    })).toBe(true);
+    expect(isAssistantDeliveryMirrorMessage({
+      role: 'assistant',
+      provider: 'openai',
+      model: 'gpt-5',
+      content: [{ type: 'text', text: 'real reply' }],
+    })).toBe(false);
+    expect(isAssistantDeliveryMirrorMessage({
+      role: 'user',
+      provider: 'openclaw',
+      model: 'delivery-mirror',
+    })).toBe(false);
   });
 });
 

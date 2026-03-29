@@ -29,6 +29,7 @@ import { FontSize, FontWeight, Radius, Space } from '../../theme/tokens';
 import type { AppTheme } from '../../theme';
 import type { CronJob, CronJobCreate, CronJobPatch, CronSchedule } from '../../types';
 import type { ConsoleStackParamList } from './ConsoleTab';
+import { buildCronWizardSaveSpec } from './cronWizardSaveSpec';
 import { findCronJobById } from './cronData';
 
 type WizardNavigation = NativeStackNavigationProp<ConsoleStackParamList, 'CronWizard'>;
@@ -358,22 +359,17 @@ export function CronWizardScreen(): React.JSX.Element {
     setSaving(true);
     try {
       const schedule = buildSchedule(form);
-      const systemPayload = {
-        kind: 'systemEvent' as const,
-        text: form.prompt.trim(),
-      };
+      const saveSpec = buildCronWizardSaveSpec(form, currentAgentId);
 
       if (editMode && jobId) {
         const patchData = {
           name: form.taskName.trim(),
           schedule,
-          sessionTarget: 'main' as const,
-          wakeMode: 'now' as const,
-          payload: systemPayload,
-          delivery: {
-            mode: 'none' as const,
-          },
-          agentId: null,
+          sessionTarget: saveSpec.sessionTarget,
+          wakeMode: saveSpec.wakeMode,
+          payload: saveSpec.payload,
+          delivery: saveSpec.delivery,
+          agentId: saveSpec.agentId ?? null,
         } as unknown as CronJobPatch;
         await gateway.updateCronJob(jobId, patchData);
         Alert.alert(t('common:Saved'), t('Cron job updated.'));
@@ -383,9 +379,11 @@ export function CronWizardScreen(): React.JSX.Element {
           name: form.taskName.trim(),
           enabled: true,
           schedule,
-          sessionTarget: 'main',
-          wakeMode: 'now',
-          payload: systemPayload,
+          agentId: saveSpec.agentId,
+          sessionTarget: saveSpec.sessionTarget,
+          wakeMode: saveSpec.wakeMode,
+          payload: saveSpec.payload,
+          delivery: saveSpec.delivery,
         };
         const created = await gateway.addCronJob(createData);
         Alert.alert(t('common:Saved'), t('Cron job created.'));
@@ -397,7 +395,7 @@ export function CronWizardScreen(): React.JSX.Element {
     } finally {
       setSaving(false);
     }
-  }, [editMode, form, gateway, jobId, navigation, t]);
+  }, [currentAgentId, editMode, form, gateway, jobId, navigation, t]);
 
   useEffect(() => {
     handleSaveRef.current = () => void handleSave();

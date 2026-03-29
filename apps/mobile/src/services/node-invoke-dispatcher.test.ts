@@ -6,14 +6,32 @@ import {
   NODE_CAPS,
 } from './node-invoke-dispatcher';
 
+jest.mock('./node-camera-capture', () => ({
+  NodeCameraCaptureError: class NodeCameraCaptureError extends Error {
+    code: string;
+
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+      this.name = 'NodeCameraCaptureError';
+    }
+  },
+  requestNodeCameraCapture: jest.fn(() => Promise.resolve({
+    uri: 'file://captured-auto.jpg',
+    width: 2000,
+    height: 4000,
+    format: 'jpg',
+  })),
+}));
+
 describe('NODE_COMMANDS', () => {
   it('contains all expected commands', () => {
     const expected = [
       'device.info',
       'device.status',
       'system.notify',
-      'camera.capture',
-      'camera.pick',
+      'camera.snap',
+      'photos.latest',
       'location.get',
       'clipboard.read',
       'clipboard.write',
@@ -59,8 +77,13 @@ describe('dispatchNodeInvoke', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('routes camera.capture to handler', async () => {
-    const result = await dispatchNodeInvoke('camera.capture', {});
+  it('routes camera.snap to handler', async () => {
+    const result = await dispatchNodeInvoke('camera.snap', {});
+    expect(result.ok).toBe(true);
+  });
+
+  it('routes photos.latest to handler', async () => {
+    const result = await dispatchNodeInvoke('photos.latest', { limit: 1 });
     expect(result.ok).toBe(true);
   });
 
@@ -88,13 +111,25 @@ describe('dispatchNodeInvoke', () => {
     }
   });
 
+  it('rejects legacy camera command names', async () => {
+    const captureResult = await dispatchNodeInvoke('camera.capture', {});
+    expect(captureResult.ok).toBe(false);
+    if (captureResult.ok) return;
+    expect(captureResult.error.code).toBe('UNKNOWN_COMMAND');
+
+    const pickResult = await dispatchNodeInvoke('camera.pick', {});
+    expect(pickResult.ok).toBe(false);
+    if (pickResult.ok) return;
+    expect(pickResult.error.code).toBe('UNKNOWN_COMMAND');
+  });
+
   it('returns CAPABILITY_DISABLED when capability toggle is off', async () => {
-    const result = await dispatchNodeInvoke('camera.capture', {}, {
+    const result = await dispatchNodeInvoke('camera.snap', {}, {
       'device.info': true,
       'device.status': true,
       'system.notify': true,
-      'camera.capture': false,
-      'camera.pick': true,
+      'camera.snap': false,
+      'photos.latest': true,
       'location.get': true,
       'clipboard.read': true,
       'clipboard.write': true,
@@ -112,15 +147,15 @@ describe('capability filtering', () => {
       'device.info': true,
       'device.status': true,
       'system.notify': true,
-      'camera.capture': false,
-      'camera.pick': true,
+      'camera.snap': false,
+      'photos.latest': true,
       'location.get': true,
       'clipboard.read': true,
       'clipboard.write': true,
       'media.save': false,
     });
-    expect(commands).not.toContain('camera.capture');
-    expect(commands).toContain('camera.pick');
+    expect(commands).not.toContain('camera.snap');
+    expect(commands).toContain('photos.latest');
     expect(commands).not.toContain('media.save');
     expect(commands).toContain('location.get');
     expect(commands).toContain('device.info');
@@ -131,8 +166,8 @@ describe('capability filtering', () => {
       'device.info': true,
       'device.status': true,
       'system.notify': true,
-      'camera.capture': false,
-      'camera.pick': false,
+      'camera.snap': false,
+      'photos.latest': false,
       'location.get': false,
       'clipboard.read': true,
       'clipboard.write': true,
@@ -150,8 +185,8 @@ describe('capability filtering', () => {
       'device.info': true,
       'device.status': true,
       'system.notify': false,
-      'camera.capture': true,
-      'camera.pick': true,
+      'camera.snap': true,
+      'photos.latest': true,
       'location.get': true,
       'clipboard.read': true,
       'clipboard.write': true,

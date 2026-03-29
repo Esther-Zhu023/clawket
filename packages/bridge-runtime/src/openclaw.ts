@@ -68,10 +68,11 @@ export function resolveGatewayUrl(explicitUrl?: string | null): string {
 
 export function readOpenClawInfo(): OpenClawInfo {
   const openclaw = resolveOpenClawPaths();
+  const envGatewayPort = readGatewayPortEnv();
   if (!existsSync(openclaw.configPath)) {
     return {
       configFound: false,
-      gatewayPort: null,
+      gatewayPort: envGatewayPort,
       authMode: null,
       token: readGatewayTokenEnv(),
       password: readGatewayPasswordEnv(),
@@ -82,7 +83,7 @@ export function readOpenClawInfo(): OpenClawInfo {
       gateway?: { port?: unknown; auth?: { mode?: unknown; token?: unknown; password?: unknown } };
     };
     const rawPort = parsed.gateway?.port;
-    const gatewayPort = typeof rawPort === 'number' && Number.isInteger(rawPort) ? rawPort : null;
+    const configuredGatewayPort = typeof rawPort === 'number' && Number.isInteger(rawPort) ? rawPort : null;
     const authMode = parsed.gateway?.auth?.mode === 'token' || parsed.gateway?.auth?.mode === 'password'
       ? parsed.gateway.auth.mode
       : null;
@@ -90,7 +91,7 @@ export function readOpenClawInfo(): OpenClawInfo {
     const password = readConfiguredSecret(parsed.gateway?.auth?.password) ?? readGatewayPasswordEnv();
     return {
       configFound: true,
-      gatewayPort,
+      gatewayPort: envGatewayPort ?? configuredGatewayPort,
       authMode,
       token,
       password,
@@ -98,7 +99,7 @@ export function readOpenClawInfo(): OpenClawInfo {
   } catch {
     return {
       configFound: true,
-      gatewayPort: null,
+      gatewayPort: envGatewayPort,
       authMode: null,
       token: readGatewayTokenEnv(),
       password: readGatewayPasswordEnv(),
@@ -1359,6 +1360,13 @@ function readGatewayTokenEnv(): string | null {
 
 function readGatewayPasswordEnv(): string | null {
   return readEnvValue('OPENCLAW_GATEWAY_PASSWORD', 'CLAWDBOT_GATEWAY_PASSWORD');
+}
+
+function readGatewayPortEnv(): number | null {
+  const raw = readEnvValue('OPENCLAW_GATEWAY_PORT', 'CLAWDBOT_GATEWAY_PORT');
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function readEnvValue(primary: string, legacy: string): string | null {

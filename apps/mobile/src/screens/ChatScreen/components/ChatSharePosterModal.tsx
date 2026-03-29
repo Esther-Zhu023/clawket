@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getChatMarkdownFlavor, openChatMarkdownLink } from '../../../components/chat/chatMarkdown';
 import { FontSize, FontWeight, Radius, Space } from '../../../theme/tokens';
 import { useAppTheme } from '../../../theme';
+import { getDisplayAgentEmoji } from '../../../utils/agent-emoji';
 import { sanitizeDisplayText } from '../../../utils/chat-message';
 import { PosterThemePicker } from '../../../components/poster/PosterThemePicker';
 import { getPosterThemeForAccent } from '../../../components/poster/posterThemes';
@@ -239,7 +240,7 @@ export function ChatSharePosterModal({
           <Image source={{ uri: agentAvatarUri }} style={[s.avatar, { borderColor: theme.accent }]} />
         ) : (
           <View style={[s.avatarFallback, { backgroundColor: theme.accentSoft, borderColor: theme.accentMuted }]}>
-            <Text style={s.avatarEmoji}>{agentEmoji || '🤖'}</Text>
+            <Text style={s.avatarEmoji}>{getDisplayAgentEmoji(agentEmoji)}</Text>
           </View>
         )}
         <Text style={s.agentName}>{agentName}</Text>

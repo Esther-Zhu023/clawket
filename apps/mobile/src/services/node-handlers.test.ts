@@ -2,6 +2,8 @@ import {
   handleDeviceInfo,
   handleDeviceStatus,
   handleSystemNotify,
+  handleCameraSnap,
+  handlePhotosLatest,
   handleCameraCapture,
   handleCameraPick,
   handleClipboardRead,
@@ -9,6 +11,25 @@ import {
   handleMediaSave,
 } from './node-handlers';
 import { Platform } from 'react-native';
+import { NodeCameraCaptureError, requestNodeCameraCapture } from './node-camera-capture';
+
+jest.mock('./node-camera-capture', () => ({
+  NodeCameraCaptureError: class NodeCameraCaptureError extends Error {
+    code: string;
+
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+      this.name = 'NodeCameraCaptureError';
+    }
+  },
+  requestNodeCameraCapture: jest.fn(() => Promise.resolve({
+    uri: 'file://captured-auto.jpg',
+    width: 2000,
+    height: 4000,
+    format: 'jpg',
+  })),
+}));
 
 const mutablePlatform = Platform as typeof Platform & { isMacCatalyst?: boolean };
 const originalPlatformOS = mutablePlatform.OS;
@@ -122,8 +143,8 @@ describe('handleCameraCapture', () => {
     if (!result.ok) return;
     const payload = result.payload as Record<string, unknown>;
     expect(payload.base64).toBe('abc123');
-    expect(payload.width).toBe(100);
-    expect(payload.height).toBe(200);
+    expect(payload.width).toBe(2000);
+    expect(payload.height).toBe(4000);
     expect(payload.uri).toBe('file://photo.jpg');
   });
 
@@ -180,6 +201,147 @@ describe('handleCameraPick', () => {
     const ImagePicker = require('expo-image-picker');
     ImagePicker.requestMediaLibraryPermissionsAsync.mockResolvedValueOnce({ granted: false });
     const result = await handleCameraPick();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('PERMISSION_DENIED');
+  });
+});
+
+describe('handleCameraSnap', () => {
+  it('returns the official camera.snap payload shape', async () => {
+    const result = await handleCameraSnap();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const payload = result.payload as Record<string, unknown>;
+    expect(payload.format).toBe('jpg');
+    expect(payload.base64).toBe('camera-base64-jpg-0.95');
+    expect(payload.width).toBe(1600);
+    expect(payload.height).toBe(3200);
+    expect(payload).not.toHaveProperty('uri');
+    expect(requestNodeCameraCapture).toHaveBeenCalledWith({
+      facing: 'front',
+      quality: 0.95,
+    });
+  });
+
+  it('honors official facing, maxWidth, quality and format params', async () => {
+    const ImageManipulator = require('expo-image-manipulator');
+
+    const result = await handleCameraSnap({
+      facing: 'back',
+      maxWidth: 800,
+      quality: 0.4,
+      format: 'jpg',
+      delayMs: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requestNodeCameraCapture).toHaveBeenCalledWith({
+      facing: 'back',
+      quality: 0.4,
+    });
+    expect(ImageManipulator.manipulateAsync).toHaveBeenCalledWith(
+      'file://captured-auto.jpg',
+      [{ resize: { width: 800 } }],
+      expect.objectContaining({
+        base64: true,
+        compress: 0.4,
+        format: 'jpeg',
+      }),
+    );
+  });
+
+  it('rejects unsupported camera.snap formats', async () => {
+    const result = await handleCameraSnap({ format: 'png' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('INVALID_PARAMS');
+  });
+
+  it('returns USER_CANCELLED when user dismisses capture', async () => {
+    (requestNodeCameraCapture as jest.Mock).mockRejectedValueOnce(
+      new NodeCameraCaptureError('USER_CANCELLED', 'Camera capture was canceled by the user.'),
+    );
+    const result = await handleCameraSnap();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('USER_CANCELLED');
+  });
+
+  it('rejects unsupported deviceId', async () => {
+    const result = await handleCameraSnap({ deviceId: 'camera-1' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('UNSUPPORTED_FEATURE');
+  });
+
+  it('returns PERMISSION_DENIED when automatic capture permission is denied', async () => {
+    (requestNodeCameraCapture as jest.Mock).mockRejectedValueOnce(
+      new NodeCameraCaptureError('PERMISSION_DENIED', 'Camera permission was denied.'),
+    );
+    const result = await handleCameraSnap();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('PERMISSION_DENIED');
+  });
+});
+
+describe('handlePhotosLatest', () => {
+  it('returns the official photos.latest payload shape', async () => {
+    const MediaLibrary = require('expo-media-library');
+    const result = await handlePhotosLatest({ limit: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const payload = result.payload as { photos?: Array<Record<string, unknown>> };
+    expect(MediaLibrary.getAssetsAsync).toHaveBeenCalledWith({
+      first: 1,
+      sortBy: [['creationTime', false]],
+      mediaType: 'photo',
+    });
+    expect(payload.photos).toHaveLength(1);
+    expect(payload.photos?.[0]?.format).toBe('jpg');
+    expect(payload.photos?.[0]?.base64).toBe('latest-base64-jpg-0.85');
+    expect(payload.photos?.[0]?.width).toBe(1600);
+    expect(payload.photos?.[0]?.height).toBe(1067);
+    expect(payload.photos?.[0]?.createdAt).toBe('2026-03-28T08:30:00.000Z');
+  });
+
+  it('honors limit, maxWidth and quality params', async () => {
+    const MediaLibrary = require('expo-media-library');
+    const ImageManipulator = require('expo-image-manipulator');
+
+    const result = await handlePhotosLatest({ limit: 3, maxWidth: 900, quality: 0.5 });
+
+    expect(result.ok).toBe(true);
+    expect(MediaLibrary.getAssetsAsync).toHaveBeenCalledWith({
+      first: 3,
+      sortBy: [['creationTime', false]],
+      mediaType: 'photo',
+    });
+    expect(ImageManipulator.manipulateAsync).toHaveBeenCalledWith(
+      'file://latest.jpg',
+      [{ resize: { width: 900 } }],
+      expect.objectContaining({
+        base64: true,
+        compress: 0.5,
+        format: 'jpeg',
+      }),
+    );
+  });
+
+  it('returns an empty photos list when the library is empty', async () => {
+    const MediaLibrary = require('expo-media-library');
+    MediaLibrary.getAssetsAsync.mockResolvedValueOnce({ assets: [] });
+    const result = await handlePhotosLatest({ limit: 3 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.payload as { photos?: unknown[] }).photos).toEqual([]);
+  });
+
+  it('returns PERMISSION_DENIED when media library is denied', async () => {
+    const MediaLibrary = require('expo-media-library');
+    MediaLibrary.requestPermissionsAsync.mockResolvedValueOnce({ status: 'denied', granted: false });
+    const result = await handlePhotosLatest({ limit: 1 });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe('PERMISSION_DENIED');

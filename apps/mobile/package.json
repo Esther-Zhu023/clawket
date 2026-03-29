@@ -1,6 +1,6 @@
 {
   "name": "clawket",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "license": "AGPL-3.0-only",
   "main": "index.ts",
   "scripts": {
@@ -43,6 +43,7 @@
     "@shopify/flash-list": "^2.3.0",
     "expo": "55.0.4",
     "expo-application": "55.0.8",
+    "expo-asset": "~55.0.8",
     "expo-battery": "55.0.8",
     "expo-blur": "55.0.8",
     "expo-camera": "55.0.9",
@@ -51,6 +52,7 @@
     "expo-document-picker": "55.0.8",
     "expo-file-system": "55.0.10",
     "expo-haptics": "55.0.8",
+    "expo-image-manipulator": "~55.0.11",
     "expo-image-picker": "55.0.9",
     "expo-linking": "55.0.7",
     "expo-localization": "55.0.8",

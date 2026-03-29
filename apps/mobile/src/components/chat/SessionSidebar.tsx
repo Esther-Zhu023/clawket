@@ -36,6 +36,7 @@ import { SessionPreferencesService } from '../../services/session-preferences';
 import { SessionInfo } from '../../types';
 import { useAppTheme } from '../../theme';
 import { FontSize, FontWeight, HitSize, Radius, Space } from '../../theme/tokens';
+import { getDisplayAgentEmoji } from '../../utils/agent-emoji';
 import { relativeTime, sessionLabel } from '../../utils/chat-message';
 import i18n from '../../i18n';
 import { EmptyState, IconButton, ModalSheet, SearchInput } from '../ui';
@@ -317,12 +318,13 @@ export function SessionSidebar({
   externalSelection,
 }: Props): React.JSX.Element {
   const { t } = useTranslation('chat');
+  const { agents, currentAgentId, isMultiAgent } = useAppContext();
   const { theme } = useAppTheme();
   const { colors } = theme;
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { agents, currentAgentId, isMultiAgent } = useAppContext();
-  const currentAgentName = agents.find((a) => a.id === currentAgentId)?.identity?.name?.trim()
-    || agents.find((a) => a.id === currentAgentId)?.name?.trim()
+  const currentAgent = agents.find((agent) => agent.id === currentAgentId);
+  const currentAgentName = currentAgent?.identity?.name?.trim()
+    || currentAgent?.name?.trim()
     || null;
   const [activeTab, setActiveTab] = useState<TabKey>('sessions');
   const [activeChannel, setActiveChannel] = useState<string>('all');
@@ -575,11 +577,11 @@ export function SessionSidebar({
             activeOpacity={0.7}
           >
             <Text style={styles.agentEmoji}>
-              {agents.find((a) => a.id === currentAgentId)?.identity?.emoji || '🤖'}
+              {getDisplayAgentEmoji(currentAgent?.identity?.emoji)}
             </Text>
             <Text style={styles.sidebarTitle} numberOfLines={1}>
-              {agents.find((a) => a.id === currentAgentId)?.identity?.name?.trim()
-                || agents.find((a) => a.id === currentAgentId)?.name?.trim()
+              {currentAgent?.identity?.name?.trim()
+                || currentAgent?.name?.trim()
                 || currentAgentId}
             </Text>
             <ChevronDown size={16} color={colors.textMuted} strokeWidth={2} />

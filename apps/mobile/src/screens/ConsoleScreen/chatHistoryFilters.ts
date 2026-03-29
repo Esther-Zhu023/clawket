@@ -1,4 +1,5 @@
 import type { CachedSessionMeta } from "../../services/chat-cache";
+import { extractDisplayAgentEmoji } from "../../utils/agent-emoji";
 
 export type GatewayNameMap = Record<string, string>;
 
@@ -48,7 +49,7 @@ export function buildChatHistoryAgentFilters(
         gatewayConfigId: session.gatewayConfigId,
         agentId: session.agentId,
         name: fallbackAgentName(session),
-        emoji: session.agentEmoji,
+        emoji: extractDisplayAgentEmoji(session.agentEmoji) ?? undefined,
         gatewayName,
         sessionCount: 1,
         lastUpdatedAt: session.updatedAt,
@@ -62,7 +63,7 @@ export function buildChatHistoryAgentFilters(
       session.updatedAt,
     );
     if (!existing.emoji && session.agentEmoji) {
-      existing.emoji = session.agentEmoji;
+      existing.emoji = extractDisplayAgentEmoji(session.agentEmoji) ?? undefined;
     }
     if (
       (!existing.name || existing.name === existing.agentId.slice(0, 8)) &&
