@@ -2,7 +2,7 @@
   "expo": {
     "name": "Clawket",
     "slug": "clawket",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -19,6 +19,7 @@
         "NSCameraUsageDescription": "Allow Clawket to use your camera to scan QR codes and take photos to send to AI.",
         "NSPhotoLibraryAddUsageDescription": "Allow Clawket to save stats posters to your photo library.",
         "NSSpeechRecognitionUsageDescription": "Allow Clawket to transcribe your speech into chat messages.",
+        "ITSAppUsesNonExemptEncryption": false,
         "CFBundleAllowMixedLocalizations": true,
         "CFBundleLocalizations": [
           "en",

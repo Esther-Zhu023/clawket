@@ -40,6 +40,7 @@ This document tracks the local Xcode release process and App Store Connect items
 
 - [ ] App privacy answers are complete
 - [ ] Age rating is complete
+- [ ] Export compliance is configured in `Info.plist` via `ITSAppUsesNonExemptEncryption = NO`
 - [ ] Sign-in / demo / review notes are complete if needed
 - [ ] Support URL is valid
 - [ ] Marketing URL is valid if you use one

@@ -44,8 +44,8 @@ export const DEFAULT_APP_UPDATE_DEBUG_HINT =
 // Keep this array newest-first. The first entry is treated as the latest release.
 export const APP_UPDATE_RELEASES: AppUpdateRelease[] = [
   {
-    version: '1.7.0',
-    releasedAt: '2026-03-29',
+    version: '1.8.0',
+    releasedAt: '2026-03-31',
     entries: [
       {
         id: 'openclaw-diagnostics-auto-repair',
