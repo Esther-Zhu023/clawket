@@ -44,5 +44,11 @@ yarn-error.*
 /android
 coverage/
 
+# local Expo modules native build outputs
+modules/*/android/build/
+modules/*/android/.gradle/
+modules/*/android/.cxx/
+modules/*/ios/build/
+
 # Strategy docs (private, not tracked)
 strategy/
