@@ -1,6 +1,6 @@
 # iOS App Store Release Checklist
 
-This document tracks the local Xcode release process and App Store Connect items needed to ship Clawket with RevenueCat-powered subscriptions.
+This document tracks the local Xcode release process and App Store Connect items needed to ship Clawket with RevenueCat-powered subscriptions and lifetime access.
 
 ## Current App Identifiers
 
@@ -13,10 +13,12 @@ This document tracks the local Xcode release process and App Store Connect items
 - RevenueCat packages:
   - `$rc_monthly`
   - `$rc_annual`
+  - `$rc_lifetime`
 - App Store subscription group: `Clawket Pro`
 - App Store products:
   - `com.p697.clawket.pro.monthly`
   - `com.p697.clawket.pro.yearly`
+  - `com.p697.clawket.pro.lifetime`
 
 ## 1. App Store Connect Checklist
 
@@ -36,6 +38,14 @@ This document tracks the local Xcode release process and App Store Connect items
 - [ ] Both have a review screenshot
 - [ ] Both are attached to the app version that will be submitted for review
 
+### Non-consumable products
+
+- [ ] `Clawket Pro Lifetime` is configured as a `Non-Consumable`
+- [ ] `Clawket Pro Lifetime` pricing is configured
+- [ ] `Clawket Pro Lifetime` has required localizations
+- [ ] `Clawket Pro Lifetime` has a review screenshot
+- [ ] `Clawket Pro Lifetime` is attached to the app version that will be submitted for review
+
 ### App metadata
 
 - [ ] App privacy answers are complete
@@ -53,7 +63,8 @@ This document tracks the local Xcode release process and App Store Connect items
 - [ ] `default` offering uses:
   - [ ] `$rc_monthly` -> `com.p697.clawket.pro.monthly`
   - [ ] `$rc_annual` -> `com.p697.clawket.pro.yearly`
-- [ ] `Clawket Pro` entitlement is attached to both products
+  - [ ] `$rc_lifetime` -> `com.p697.clawket.pro.lifetime`
+- [ ] `Clawket Pro` entitlement is attached to all three products
 - [ ] No app build is using `EXPO_PUBLIC_REVENUECAT_TEST_API_KEY`
 
 ## 3. Local Build Environment Checklist
@@ -138,10 +149,12 @@ Before submitting to App Review, verify on a TestFlight or store-distribution bu
 - [ ] Free user sees the Pro paywall at the correct gated entry points
 - [ ] Monthly purchase succeeds
 - [ ] Yearly purchase succeeds
+- [ ] Lifetime purchase succeeds
 - [ ] Restore purchases succeeds after reinstall
 - [ ] Membership card shows the correct plan type
 - [ ] Existing Pro user sees the read-only paywall state
 - [ ] Debug-only RevenueCat App User ID is hidden unless Debug Mode is enabled
+- [ ] Paywall shows the correct CTA and legal note when `Lifetime` is selected
 
 ## 10. Known Expected Warning Before Review
 
@@ -150,7 +163,7 @@ RevenueCat may show warnings like:
 - product status is `READY_TO_SUBMIT`
 - offering packages point at products that are not yet approved
 
-This is expected before App Review. These warnings should disappear after the subscription products are submitted with the app version and approved by Apple.
+This is expected before App Review. These warnings should disappear after the subscription and lifetime products are submitted with the app version and approved by Apple.
 
 ## 11. Recommended Release Order
 
@@ -160,7 +173,7 @@ This is expected before App Review. These warnings should disappear after the su
 4. Archive locally in Xcode
 5. Upload to TestFlight from Xcode Organizer
 6. Confirm the build appears in App Store Connect / TestFlight
-7. Re-run monthly / yearly / restore validation
+7. Re-run monthly / yearly / lifetime / restore validation
 8. Archive and upload the final review build locally from Xcode
-9. Attach both subscription products to the app version
+9. Attach both subscription products and the lifetime product to the app version
 10. Submit the app version for review

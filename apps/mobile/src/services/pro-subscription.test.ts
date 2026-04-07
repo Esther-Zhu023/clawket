@@ -202,13 +202,25 @@ describe('selectRevenueCatPackages', () => {
       pricePerMonthString: '$2.49',
     },
   } as any;
+  const lifetimePackage = {
+    identifier: '$rc_lifetime',
+    packageType: 'LIFETIME',
+    product: {
+      identifier: 'lifetime',
+      title: 'Clawket Pro Lifetime',
+      description: 'Unlock Pro forever',
+      priceString: '$79.99',
+      pricePerMonthString: null,
+    },
+  } as any;
 
-  it('returns monthly and annual packages in a stable order', () => {
+  it('returns monthly, annual, and lifetime packages in a stable order', () => {
     expect(selectRevenueCatPackages({
       all: {
         default: {
           identifier: 'default',
-          availablePackages: [monthlyPackage, annualPackage],
+          availablePackages: [monthlyPackage, annualPackage, lifetimePackage],
+          lifetime: lifetimePackage,
           monthly: monthlyPackage,
           annual: annualPackage,
         },
@@ -218,7 +230,7 @@ describe('selectRevenueCatPackages', () => {
       apiKey: 'key',
       entitlementId: 'pro',
       offeringId: 'default',
-    })).toEqual([monthlyPackage, annualPackage]);
+    })).toEqual([monthlyPackage, annualPackage, lifetimePackage]);
   });
 
   it('falls back to the first available package when no monthly or annual package exists', () => {
@@ -264,6 +276,14 @@ describe('selectRevenueCatPackages', () => {
     })?.packageIdentifier).toBe('$rc_monthly');
   });
 
+  it('falls back to lifetime when it is the only primary paywall package', () => {
+    const packages = [toProPaywallPackage(lifetimePackage)];
+    expect(selectDefaultRevenueCatPackage(packages, {
+      apiKey: 'key',
+      entitlementId: 'pro',
+    })?.packageIdentifier).toBe('$rc_lifetime');
+  });
+
   it('matches the subscribed package from the snapshot product identifier', () => {
     const packages = [toProPaywallPackage(monthlyPackage), toProPaywallPackage(annualPackage)];
     expect(selectSnapshotRevenueCatPackage(packages, {
@@ -281,6 +301,25 @@ describe('selectRevenueCatPackages', () => {
       requestDate: null,
       verification: null,
     })?.packageIdentifier).toBe('$rc_annual');
+  });
+
+  it('matches a lifetime package from the snapshot product identifier', () => {
+    const packages = [toProPaywallPackage(monthlyPackage), toProPaywallPackage(lifetimePackage)];
+    expect(selectSnapshotRevenueCatPackage(packages, {
+      isActive: true,
+      entitlementId: 'pro',
+      productIdentifier: 'com.p697.clawket.pro.lifetime',
+      productPlanIdentifier: null,
+      originalPurchaseDate: null,
+      latestPurchaseDate: null,
+      expirationDate: null,
+      willRenew: false,
+      store: 'APP_STORE',
+      managementURL: null,
+      originalAppUserId: '$RCAnonymousID:test',
+      requestDate: null,
+      verification: null,
+    })?.packageIdentifier).toBe('$rc_lifetime');
   });
 });
 

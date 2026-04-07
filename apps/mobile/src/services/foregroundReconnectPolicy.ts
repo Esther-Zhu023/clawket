@@ -1,0 +1,21 @@
+import type { ConnectionState } from '../types';
+
+export const APP_FOREGROUND_RECONNECT_AWAY_MS = 60_000;
+
+export function shouldReconnectGatewayOnForegroundResume(input: {
+  platformOs: string;
+  awayMs: number;
+  connectionState: ConnectionState;
+}): boolean {
+  if (input.connectionState === 'pairing_pending') {
+    return false;
+  }
+
+  // iOS commonly suspends backgrounded apps hard enough that an inherited
+  // "ready" socket cannot be trusted after returning to foreground.
+  if (input.platformOs === 'ios' && input.awayMs > 0) {
+    return true;
+  }
+
+  return input.connectionState !== 'ready' || input.awayMs >= APP_FOREGROUND_RECONNECT_AWAY_MS;
+}

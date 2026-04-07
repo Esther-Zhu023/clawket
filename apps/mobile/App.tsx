@@ -1,6 +1,6 @@
 import 'react-native-get-random-values';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, AppStateStatus, NativeModules, Platform, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, AppStateStatus, Easing, NativeModules, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
@@ -23,6 +23,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ConfigTab } from './src/screens/ConfigScreen/ConfigTab';
 import { ChatTab } from './src/screens/ChatScreen/ChatTab';
 import { ConsoleTab } from './src/screens/ConsoleScreen/ConsoleTab';
+import { DiscoverTab } from './src/screens/DiscoverScreen/DiscoverTab';
 import { OpenClawPermissionsScreen } from './src/screens/ConfigScreen/OpenClawPermissionsScreen';
 import {
   renderConsoleModalScreens,
@@ -49,6 +50,7 @@ import { GatewayClient } from './src/services/gateway';
 import { NodeClient } from './src/services/node-client';
 import { dispatchNodeInvoke } from './src/services/node-invoke-dispatcher';
 import { NodeCapabilityToggles } from './src/services/node-capabilities';
+import { shouldReconnectGatewayOnForegroundResume } from './src/services/foregroundReconnectPolicy';
 import { shouldRunGatewayKeepAlive } from './src/services/gatewayKeepAlivePolicy';
 import { logAppTelemetry } from './src/services/app-telemetry';
 import {
@@ -80,13 +82,14 @@ import { normalizeAccessibleAgentId } from './src/utils/pro';
 
 type RootTabParamList = {
   Chat: undefined;
-  Office: undefined;
+  Discover: undefined;
   Console: undefined;
   My: undefined;
 };
 
 type RootStackParamList = {
   MainTabs: NavigatorScreenParams<RootTabParamList> | undefined;
+  Office: undefined;
   OpenClawPermissions: undefined;
 } & ConsoleStackParamList;
 
@@ -237,7 +240,6 @@ const officeHtmlString: string = require('./office-game/dist/office-inline.js').
 
 const OFFICE_HTML_BG_REGEX = /(html,\s*body\s*\{[^}]*background-color:\s*)([^;]+)(;)/;
 
-const TAB_BAR_HEIGHT = Platform.OS === 'android' ? 60 : 49;
 const GATEWAY_KEEPALIVE_INTERVAL_MS = 5_000;
 
 function resolveDevHost(): string {
@@ -372,7 +374,6 @@ function AppContent({
   const [agentAvatars, setAgentAvatars] = useState<Record<string, string>>({});
   const [currentAgentId, setCurrentAgentIdState] = useState<string>(initialAgentId ?? 'main');
   const [pendingAgentSwitch, setPendingAgentSwitch] = useState<string | null>(null);
-  const officeLazy = false;
   const [hasUnreadChat, setHasUnreadChat] = useState(false);
   const [gatewayEpoch, setGatewayEpoch] = useState(0);
   const [foregroundEpoch, setForegroundEpoch] = useState(0);
@@ -384,11 +385,15 @@ function AppContent({
   const officeLoadEndHandlerRef = useRef<(() => void) | null>(null);
   const officeDebugAppendRef = useRef<((msg: string) => void) | null>(null);
   const [isOfficeFocused, setIsOfficeFocused] = useState(false);
+  const [officeViewportTopInset, setOfficeViewportTopInset] = useState(0);
   const [shouldShowOfficeWebView, setShouldShowOfficeWebView] = useState(false);
+  const [isOfficeWebViewMounted, setIsOfficeWebViewMounted] = useState(false);
   const [officeGuideVisible, setOfficeGuideVisible] = useState(false);
+  const officeWebViewSlideX = useRef(new Animated.Value(0)).current;
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const backgroundedAtRef = useRef<number | null>(null);
   const gatewayKeepAliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { width: viewportWidth } = useWindowDimensions();
 
   // Load saved agent avatars on mount
   useEffect(() => { loadAgentAvatars().then(setAgentAvatars).catch(() => {}); }, []);
@@ -460,7 +465,7 @@ function AppContent({
     const mainTabsState = getMainTabsState(state);
     const activeTabRoute = mainTabsState?.routes[mainTabsState.index ?? 0];
     const activeRootRoute = state.routes[state.index ?? 0];
-    const officeTabFocused = activeTabRoute?.name === 'Office';
+    const officeScreenFocused = activeRootRoute?.name === 'Office';
     if (activeTabRoute) {
       activeTabRef.current = activeTabRoute.name;
     }
@@ -468,11 +473,11 @@ function AppContent({
       hasUnreadChatRef.current = false;
       setHasUnreadChat(false);
     }
-    setIsOfficeFocused(officeTabFocused);
+    setIsOfficeFocused(officeScreenFocused);
     setShouldShowOfficeWebView(
       Platform.OS === 'ios'
-        ? officeTabFocused
-        : officeTabFocused && activeRootRoute?.name === 'MainTabs',
+        ? officeScreenFocused
+        : officeScreenFocused,
     );
     setIsWebViewScreen(getActiveLeafRouteName(state) === 'Docs');
   }, [trackScreenState]);
@@ -481,6 +486,52 @@ function AppContent({
     if (isOfficeFocused) return;
     setOfficeGuideVisible(false);
   }, [isOfficeFocused]);
+
+  useEffect(() => {
+    const hiddenOffset = viewportWidth || 0;
+    if (!isOfficeWebViewMounted) {
+      officeWebViewSlideX.setValue(hiddenOffset);
+    }
+  }, [isOfficeWebViewMounted, officeWebViewSlideX, viewportWidth]);
+
+  useEffect(() => {
+    const hiddenOffset = viewportWidth || 0;
+    if (Platform.OS !== 'ios') {
+      setIsOfficeWebViewMounted(shouldShowOfficeWebView);
+      officeWebViewSlideX.setValue(0);
+      return;
+    }
+
+    officeWebViewSlideX.stopAnimation();
+
+    if (shouldShowOfficeWebView) {
+      setIsOfficeWebViewMounted(true);
+      officeWebViewSlideX.setValue(hiddenOffset);
+      Animated.timing(officeWebViewSlideX, {
+        toValue: 0,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    if (!isOfficeWebViewMounted) {
+      officeWebViewSlideX.setValue(hiddenOffset);
+      return;
+    }
+
+    Animated.timing(officeWebViewSlideX, {
+      toValue: hiddenOffset,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setIsOfficeWebViewMounted(false);
+      }
+    });
+  }, [isOfficeWebViewMounted, officeWebViewSlideX, shouldShowOfficeWebView, viewportWidth]);
 
   const handleOpenOfficeGuide = useCallback(() => {
     setOfficeGuideVisible(true);
@@ -584,7 +635,11 @@ function AppContent({
       backgroundedAtRef.current = null;
       setForegroundEpoch((prev) => prev + 1);
       const state = gateway.getConnectionState();
-      const shouldReconnect = state !== 'ready' || awayMs >= 60_000;
+      const shouldReconnect = shouldReconnectGatewayOnForegroundResume({
+        platformOs: Platform.OS,
+        awayMs,
+        connectionState: state,
+      });
       logAppTelemetry('app_lifecycle', 'foreground_resume', {
         prevState,
         awayMs,
@@ -845,6 +900,8 @@ function AppContent({
       officeLoadEndHandlerRef,
       officeDebugAppendRef,
       isOfficeFocused,
+      officeViewportTopInset,
+      setOfficeViewportTopInset,
     }),
     [
       agentAvatars,
@@ -892,6 +949,7 @@ function AppContent({
       clearPendingAgentSwitch,
       showModelUsage,
       speechRecognitionLanguage,
+      officeViewportTopInset,
     ],
   );
 
@@ -1061,13 +1119,12 @@ function AppContent({
                   }}
                 />
                 <Tab.Screen
-                  name="Office"
-                  component={OfficeTab}
+                  name="Discover"
+                  component={DiscoverTab}
                   options={{
-                    tabBarLabel: t('Office'),
-                    lazy: officeLazy,
+                    tabBarLabel: t('Discover'),
                     ...(Platform.OS === 'ios' ? {
-                      tabBarIcon: ({ focused }: { focused: boolean }) => ({ sfSymbol: focused ? 'building.2.fill' : 'building.2' }),
+                      tabBarIcon: ({ focused }: { focused: boolean }) => ({ sfSymbol: focused ? 'sparkles' : 'sparkles' }),
                     } : {}),
                   }}
                 />
@@ -1095,6 +1152,10 @@ function AppContent({
             )}
           </RootStack.Screen>
           <RootStack.Screen
+            name="Office"
+            component={OfficeTab}
+          />
+          <RootStack.Screen
             name="OpenClawPermissions"
             component={OpenClawPermissionsScreen}
             options={rootModalScreenOptions}
@@ -1109,12 +1170,14 @@ function AppContent({
           </React.Fragment>
         </RootStack.Navigator>
       </NavigationContainer>
-      <View
+      <Animated.View
         pointerEvents={shouldShowOfficeWebView ? 'auto' : 'none'}
-        style={shouldShowOfficeWebView
-          ? { position: 'absolute', top: 0, left: 0, right: 0, bottom: TAB_BAR_HEIGHT + insets.bottom }
-          : { position: 'absolute', width: 1, height: 1, overflow: 'hidden' }
-        }
+        style={[
+          isOfficeWebViewMounted
+            ? { position: 'absolute', top: officeViewportTopInset, left: 0, right: 0, bottom: 0 }
+            : { position: 'absolute', width: 1, height: 1, overflow: 'hidden' },
+          { transform: [{ translateX: officeWebViewSlideX }] },
+        ]}
       >
         <WebView
           ref={officeWebViewRef}
@@ -1142,10 +1205,10 @@ function AppContent({
           originWhitelist={['*']}
           contentInsetAdjustmentBehavior="never"
         />
-      </View>
+      </Animated.View>
       {shouldShowOfficeWebView && !officeGuideVisible ? (
         <OfficeGuideButton
-          top={Math.max(insets.top, 8) + 4}
+          top={Math.max(officeViewportTopInset, 8) + 4}
           right={8}
           onPress={handleOpenOfficeGuide}
         />
@@ -1167,7 +1230,7 @@ function AppContent({
 const DEBUG_LOG_LIMIT = 40;
 
 function OfficeDebugOverlay(): React.JSX.Element | null {
-  const { debugMode, isOfficeFocused, officeDebugAppendRef } = useAppContext();
+  const { debugMode, isOfficeFocused, officeDebugAppendRef, officeViewportTopInset } = useAppContext();
   const insets = useSafeAreaInsets();
   const [logs, setLogs] = useState<string[]>([]);
 
@@ -1184,8 +1247,8 @@ function OfficeDebugOverlay(): React.JSX.Element | null {
     <DebugOverlay
       logs={logs}
       style={{
-        top: undefined,
-        bottom: TAB_BAR_HEIGHT + insets.bottom + 8,
+        top: officeViewportTopInset + 8,
+        bottom: insets.bottom + 8,
         zIndex: 9999,
       }}
     />

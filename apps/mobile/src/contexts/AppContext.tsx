@@ -96,6 +96,8 @@ export type AppContextType = {
   officeLoadEndHandlerRef: React.MutableRefObject<(() => void) | null>;
   officeDebugAppendRef: React.MutableRefObject<((msg: string) => void) | null>;
   isOfficeFocused: boolean;
+  officeViewportTopInset: number;
+  setOfficeViewportTopInset: (value: number) => void;
 };
 
 const AppContext = React.createContext<AppContextType | null>(null);

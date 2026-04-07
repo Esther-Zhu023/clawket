@@ -120,8 +120,7 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
   const features = [
     { emoji: '\uD83D\uDD17', text: t('Connect to multiple OpenClaws') },
     { emoji: '\uD83D\uDDD2\uFE0F', text: t('Back up, diagnose & fix OpenClaw') },
-    { emoji: '\uD83D\uDD10', text: t('View and manage OpenClaw permissions') },
-    { emoji: '\uD83C\uDFA8', text: t('Exclusive app icons') },
+    { emoji: '\uD83D\uDD10', text: t('Manage OpenClaw permissions') },
     { emoji: '\u270F\uFE0F', text: t('Edit agent personality and memory') },
     { emoji: '\uD83D\uDCCA', text: t('Search chat history & view logs') },
   ];
@@ -263,7 +262,7 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
                 blocked_feature: blockedFeature,
                 preview_only: previewOnly,
               });
-              Alert.alert(t('Subscription successful'), t('Your Pro subscription is now active.'));
+              Alert.alert(t('Purchase successful'), formatSuccessBody(selectedPackage?.packageType, t));
             })();
           }}
           disabled={purchaseDisabled}
@@ -277,9 +276,7 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
             <ActivityIndicator size="small" color={theme.colors.primaryText} />
           ) : (
             <Text style={styles.primaryCtaText}>
-              {selectedPackage?.priceString
-                ? t('Subscribe Now — {{price}}', { price: selectedPackage.priceString })
-                : t('Subscribe Now')}
+              {formatPrimaryCtaLabel(selectedPackage?.packageType, selectedPackage?.priceString, t)}
             </Text>
           )}
         </Pressable>
@@ -326,9 +323,11 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
         </Pressable>
 
         <View style={styles.legalSection}>
-          <Text style={styles.legalNote}>
-            {t('Subscriptions renew automatically and can be cancelled anytime in App Store Settings.')}
-          </Text>
+          {formatLegalNote(selectedPackage?.packageType, t) ? (
+            <Text style={styles.legalNote}>
+              {formatLegalNote(selectedPackage?.packageType, t)}
+            </Text>
+          ) : null}
           {publicAppLinks.privacyPolicyUrl || publicAppLinks.termsOfUseUrl ? (
             <View style={styles.legalLinksRow}>
               {publicAppLinks.privacyPolicyUrl ? (
@@ -399,7 +398,37 @@ function mapErrorCode(
 function formatPackageLabel(packageType: string, t: (key: string, options?: Record<string, unknown>) => string): string {
   if (packageType === 'MONTHLY') return t('Monthly');
   if (packageType === 'ANNUAL') return t('Yearly');
+  if (packageType === 'LIFETIME') return t('Lifetime');
   return packageType;
+}
+
+function formatPrimaryCtaLabel(
+  packageType: string | undefined,
+  priceString: string | undefined,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  if (packageType === 'LIFETIME') {
+    return priceString
+      ? t('Buy Lifetime — {{price}}', { price: priceString })
+      : t('Buy Lifetime');
+  }
+  return priceString
+    ? t('Subscribe Now — {{price}}', { price: priceString })
+    : t('Subscribe Now');
+}
+
+function formatSuccessBody(packageType: string | undefined, t: (key: string) => string): string {
+  if (packageType === 'LIFETIME') {
+    return t('Your lifetime Pro access is now active.');
+  }
+  return t('Your Pro subscription is now active.');
+}
+
+function formatLegalNote(packageType: string | undefined, t: (key: string) => string): string | null {
+  if (packageType === 'LIFETIME') {
+    return null;
+  }
+  return t('Subscriptions renew automatically and can be cancelled anytime in App Store Settings.');
 }
 
 function createStyles(colors: ReturnType<typeof useAppTheme>['theme']['colors']) {

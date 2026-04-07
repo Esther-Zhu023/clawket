@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, RefreshCw, Share2 } from 'lucide-react-native';
 import { Animated, Easing, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import { CommonActions, useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme';
@@ -148,7 +148,7 @@ const EMPTY_DASHBOARD: DashboardData = {
 
 function useDashboardData() {
   const { gateway, gatewayEpoch, foregroundEpoch, currentAgentId, config } = useAppContext();
-  const { t, i18n } = useTranslation('console');
+  const { t, i18n } = useTranslation(['console', 'common']);
   const isFocused = useIsFocused();
   const hasGateway = config != null;
   const cacheScope = useMemo(() => resolveDashboardCacheScope(config, currentAgentId), [config, currentAgentId]);
@@ -776,6 +776,24 @@ export function ConsoleMenuScreen(): React.JSX.Element {
 
         {/* List items */}
         <View style={styles.listSection}>
+          <TouchableOpacity
+            style={[styles.listItem, { borderColor: colors.border }]}
+            onPress={() => {
+              analyticsEvents.consoleEntryTapped({
+                destination: 'Office',
+                source: 'list_office',
+              });
+              navigation.dispatch(CommonActions.navigate({ name: 'Office' }));
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.listEmoji}>{'🏢'}</Text>
+            <View style={styles.listText}>
+              <Text style={[styles.listTitle, { color: colors.text }]}>{t('Office', { ns: 'common' })}</Text>
+              <Text style={[styles.listDesc, { color: colors.textMuted }]}>{t('A pixel office workspace', { ns: 'common' })}</Text>
+            </View>
+            <ChevronRight size={16} color={colors.textSubtle} strokeWidth={2} />
+          </TouchableOpacity>
           <TouchableOpacity style={[styles.listItem, { borderColor: colors.border }]} onPress={() => nav('AgentSessionsBoard', 'list_agent_sessions_board')} activeOpacity={0.7}>
             <Text style={styles.listEmoji}>{'🪟'}</Text>
             <View style={styles.listText}>

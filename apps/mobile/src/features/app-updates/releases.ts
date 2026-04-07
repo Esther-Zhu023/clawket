@@ -5,6 +5,10 @@ export type AppUpdateAnnouncementAction =
       type: 'none';
     }
   | {
+      type: 'navigate_tab';
+      screen: 'Discover';
+    }
+  | {
       type: 'open_url';
       url: string;
     }
@@ -14,7 +18,7 @@ export type AppUpdateAnnouncementAction =
     }
   | {
       type: 'navigate_config';
-      screen: 'ChatAppearance' | 'OpenClawConfig';
+      screen: 'ChatAppearance' | 'OpenClawConfig' | 'OpenClawPermissionRepair';
     };
 
 export type AppUpdateAnnouncementEntry = {
@@ -44,6 +48,32 @@ export const DEFAULT_APP_UPDATE_DEBUG_HINT =
 // Keep this array newest-first. The first entry is treated as the latest release.
 export const APP_UPDATE_RELEASES: AppUpdateRelease[] = [
   {
+    version: '1.9.0',
+    releasedAt: '2026-04-07',
+    entries: [
+      {
+        id: 'discover-tab',
+        emoji: '🧩',
+        title: 'New Discover Tab',
+        subtitle: 'Explore the all-new Discover page from our second tab.',
+        action: {
+          type: 'navigate_tab',
+          screen: 'Discover',
+        },
+      },
+      {
+        id: 'one-click-permission-repair',
+        emoji: '🔧',
+        title: 'One-click Permission Repair',
+        subtitle: 'Jump straight to the new repair flow from OpenClaw Config Management.',
+        action: {
+          type: 'navigate_config',
+          screen: 'OpenClawPermissionRepair',
+        },
+      },
+    ],
+  },
+  {
     version: '1.8.0',
     releasedAt: '2026-04-02',
     entries: [
@@ -55,16 +85,6 @@ export const APP_UPDATE_RELEASES: AppUpdateRelease[] = [
         action: {
           type: 'navigate_console',
           screen: 'AgentSessionsBoard',
-        },
-      },
-      {
-        id: 'repair-agent-permissions',
-        emoji: '🔐',
-        title: 'One-click repair agent permissions',
-        subtitle: 'Give agent full authorization so permissions stop getting in the way.',
-        action: {
-          type: 'navigate_config',
-          screen: 'OpenClawConfig',
         },
       },
       {

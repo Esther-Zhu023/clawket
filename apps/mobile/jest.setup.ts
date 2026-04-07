@@ -308,6 +308,7 @@ jest.mock('react-native-purchases', () => {
     PACKAGE_TYPE: {
       MONTHLY: 'MONTHLY',
       ANNUAL: 'ANNUAL',
+      LIFETIME: 'LIFETIME',
     },
     PURCHASES_ERROR_CODE: {
       PURCHASE_CANCELLED_ERROR: '1',

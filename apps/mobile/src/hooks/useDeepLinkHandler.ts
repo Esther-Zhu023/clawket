@@ -11,13 +11,14 @@ import type { ConsoleStackParamList } from '../screens/ConsoleScreen/sharedNavig
 
 type RootTabParamList = {
   Chat: undefined;
-  Office: undefined;
+  Discover: undefined;
   Console: undefined;
   My: undefined;
 };
 
 type RootStackParamList = {
   MainTabs: NavigatorScreenParams<RootTabParamList> | undefined;
+  Office: undefined;
   OpenClawPermissions: undefined;
 } & ConsoleStackParamList;
 

@@ -2,50 +2,21 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CheckCircle2, CircleAlert, ShieldAlert, TriangleAlert } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { EmptyState, ThemedSwitch, createCardContentStyle } from '../../components/ui';
 import { useAppContext } from '../../contexts/AppContext';
 import { useProPaywall } from '../../contexts/ProPaywallContext';
 import { useGatewayPatch } from '../../hooks/useGatewayPatch';
 import { useNativeStackModalHeader } from '../../hooks/useNativeStackModalHeader';
-import type { RelayPermissionsResult, RelayPermissionsStatus } from '../../services/gateway-relay';
+import type { RelayPermissionsResult } from '../../services/gateway-relay';
 import { useAppTheme } from '../../theme';
 import { FontSize, FontWeight, Radius, Space } from '../../theme/tokens';
 import { buildCurrentAgentCommandAccessPatch } from '../../utils/openclaw-agent-permissions';
-import { buildGatewayExecPatch } from '../../utils/gateway-tool-settings';
 import type { ConfigStackParamList } from './ConfigTab';
 import { useGatewayToolSettings } from './hooks/useGatewayToolSettings';
 
 type Navigation = NativeStackNavigationProp<ConfigStackParamList, 'OpenClawPermissions'>;
 type PermissionsRoute = RouteProp<ConfigStackParamList, 'OpenClawPermissions'>;
-
-type StatusCardProps = {
-  title: string;
-  summary: string;
-  status: RelayPermissionsStatus;
-  styles: ReturnType<typeof createStyles>;
-};
-
-function StatusCard({ title, summary, status, styles }: StatusCardProps): React.JSX.Element {
-  const icon = status === 'available'
-    ? <CheckCircle2 size={18} strokeWidth={2.2} color="#22C55E" />
-    : status === 'needs_approval'
-      ? <ShieldAlert size={18} strokeWidth={2.2} color="#F59E0B" />
-      : status === 'configuration_needed' || status === 'restricted'
-        ? <TriangleAlert size={18} strokeWidth={2.2} color="#F59E0B" />
-        : <CircleAlert size={18} strokeWidth={2.2} color="#EF4444" />;
-
-  return (
-    <View style={styles.statusCard}>
-      <View style={styles.statusHeader}>
-        {icon}
-        <Text style={styles.statusTitle}>{title}</Text>
-      </View>
-      <Text style={styles.statusSummary}>{summary}</Text>
-    </View>
-  );
-}
 
 function ChipRow<T extends string>({
   options,
@@ -85,36 +56,6 @@ function trimReasonPrefix(reason: string): string {
   return reason.replace(/^\[[^\]]+\]\s*/, '').trim();
 }
 
-function confirmAction(options: {
-  title: string;
-  message: string;
-  confirmText: string;
-  cancelText: string;
-}): Promise<boolean> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      options.title,
-      options.message,
-      [
-        {
-          text: options.cancelText,
-          style: 'cancel',
-          onPress: () => resolve(false),
-        },
-        {
-          text: options.confirmText,
-          style: 'default',
-          onPress: () => resolve(true),
-        },
-      ],
-      {
-        cancelable: true,
-        onDismiss: () => resolve(false),
-      },
-    );
-  });
-}
-
 export function OpenClawPermissionsScreen(): React.JSX.Element {
   const navigation = useNavigation<Navigation>();
   useRoute<PermissionsRoute>();
@@ -136,7 +77,6 @@ export function OpenClawPermissionsScreen(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RelayPermissionsResult | null>(null);
   const [savingCurrentAgentAccess, setSavingCurrentAgentAccess] = useState(false);
-  const [repairingAgentPermissions, setRepairingAgentPermissions] = useState(false);
 
   const loadPermissions = useCallback(async () => {
     if (!hasActiveGateway || !isRelayRoute) {
@@ -211,24 +151,6 @@ export function OpenClawPermissionsScreen(): React.JSX.Element {
     if (value === 'messaging') return t('Messaging');
     if (value === 'full') return t('Full');
     return t('Not set');
-  }, [t]);
-  const localizeWebSummary = useCallback((summary: string) => {
-    switch (summary) {
-      case 'Web search and fetch are blocked by tool policy.':
-        return t('Web search and fetch are blocked by tool policy.');
-      case 'Web search and fetch are turned off.':
-        return t('Web search and fetch are turned off.');
-      case 'Web search is enabled, but no search provider key was found.':
-        return t('Web search is enabled, but no search provider key was found.');
-      case 'Common web tools look available.':
-        return t('Common web tools look available.');
-      case 'Web fetch is available, but web search is blocked by tool policy.':
-        return t('Web fetch is available, but web search is blocked by tool policy.');
-      case 'Web search is available, but web fetch is blocked by tool policy.':
-        return t('Web search is available, but web fetch is blocked by tool policy.');
-      default:
-        return summary;
-    }
   }, [t]);
   const localizeWebReason = useCallback((reason: string): string | null => {
     const normalized = trimReasonPrefix(reason);
@@ -305,9 +227,6 @@ export function OpenClawPermissionsScreen(): React.JSX.Element {
     }
     return items;
   }, [localizeWebReason]);
-  const webReasons = result ? localizeReasons(result.web.reasons) : [];
-  const webSummary = result ? localizeWebSummary(result.web.summary) : '';
-
   const execSummary = useMemo(() => {
     if (!result) return '';
     if (!result.exec.execToolAvailable) {
@@ -384,9 +303,7 @@ export function OpenClawPermissionsScreen(): React.JSX.Element {
     return items;
   }, [result, t, localizeExecHost, localizeExecSecurity, localizeExecAsk, localizeToolProfile]);
   const currentAgentCommandAccess = result?.exec.execToolAvailable ? 'available' : 'blocked';
-  const agentPermissionQuickFixApplied = currentAgentCommandAccess === 'available'
-    && toolSettings.execSecurity === 'full'
-    && toolSettings.execAsk === 'on-miss';
+  const webReasons = result ? localizeReasons(result.web.reasons) : [];
   const currentAgentAccessImpact = useMemo(() => {
     if (currentAgentCommandAccess === 'blocked') {
       return t('Blocked means this agent cannot run commands or manage background processes.');
@@ -456,85 +373,6 @@ export function OpenClawPermissionsScreen(): React.JSX.Element {
       setSavingCurrentAgentAccess(false);
     }
   }, [gateway, hasActiveGateway, loadPermissions, patchWithRestart, result, savingCurrentAgentAccess, t, toolSettings]);
-  const repairAgentPermissions = useCallback(async () => {
-    if (!result || !hasActiveGateway || repairingAgentPermissions || agentPermissionQuickFixApplied) {
-      return;
-    }
-    const confirmed = await confirmAction({
-      title: t('Repair agent permissions?'),
-      message: t('This will fully enable command access for the current agent, set command permission level to Full, and set command confirmation mode to Unknown Only. OpenClaw Gateway will restart. Continue?'),
-      confirmText: t('Repair Now'),
-      cancelText: t('Cancel'),
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    const snapshot = await gateway.getConfig();
-    if (!snapshot.hash) {
-      setError(t('Gateway config hash is missing. Please refresh and try again.'));
-      return;
-    }
-
-    const accessNeedsFix = currentAgentCommandAccess === 'blocked';
-    const accessPatch = accessNeedsFix
-      ? buildCurrentAgentCommandAccessPatch({
-        config: snapshot.config,
-        agentId: result.exec.currentAgentId,
-        blocked: false,
-      })
-      : null;
-
-    if (accessNeedsFix && !accessPatch) {
-      setError(t('Current agent command access could not be updated. Please refresh and try again.'));
-      return;
-    }
-
-    const patch: Record<string, unknown> = {
-      ...buildGatewayExecPatch({
-        execSecurity: 'full',
-        execAsk: 'on-miss',
-      }),
-      ...(accessPatch ? { agents: accessPatch.patch.agents } : {}),
-    };
-
-    setRepairingAgentPermissions(true);
-    try {
-      await patchWithRestart({
-        patch,
-        configHash: snapshot.hash,
-        savingMessage: t('Repairing agent permissions...'),
-        restartingMessage: t('Restarting Gateway...'),
-        onSuccess: async () => {
-          await Promise.all([
-            loadPermissions(),
-            toolSettings.loadToolSettings(),
-          ]);
-          setError(null);
-        },
-        onError: async () => {
-          await Promise.all([
-            loadPermissions(),
-            toolSettings.loadToolSettings(),
-          ]);
-        },
-      });
-    } finally {
-      setRepairingAgentPermissions(false);
-    }
-  }, [
-    agentPermissionQuickFixApplied,
-    currentAgentCommandAccess,
-    gateway,
-    hasActiveGateway,
-    loadPermissions,
-    patchWithRestart,
-    repairingAgentPermissions,
-    result,
-    t,
-    toolSettings,
-  ]);
-
   if (!hasActiveGateway) {
     return (
       <View style={styles.emptyWrap}>
@@ -564,31 +402,6 @@ export function OpenClawPermissionsScreen(): React.JSX.Element {
         <View style={styles.card}>
           <Text style={styles.errorText}>{error}</Text>
         </View>
-      ) : null}
-
-      {result ? (
-        <>
-          <Pressable
-            onPress={() => { void repairAgentPermissions(); }}
-            disabled={repairingAgentPermissions || savingCurrentAgentAccess || loading || agentPermissionQuickFixApplied}
-            style={({ pressed }) => [
-              styles.repairCard,
-              (pressed && !repairingAgentPermissions && !agentPermissionQuickFixApplied) ? styles.repairCardPressed : null,
-              (repairingAgentPermissions || savingCurrentAgentAccess || loading || agentPermissionQuickFixApplied) ? styles.repairCardDisabled : null,
-            ]}
-          >
-            <Text style={styles.repairTitle}>{t('One-click repair agent permissions')}</Text>
-            <Text style={styles.repairSubtitle}>
-              {t('Give agent full authorization so permissions stop getting in the way.')}
-            </Text>
-          </Pressable>
-
-          <View style={styles.statusGrid}>
-            <StatusCard title={t('Web Search & Fetch')} summary={webSummary} status={result.web.status} styles={styles} />
-            <StatusCard title={t('Command Execution')} summary={execSummary} status={result.exec.status} styles={styles} />
-            <StatusCard title={t('Code Execution')} summary={codeExecutionSummary} status={result.codeExecution.status} styles={styles} />
-          </View>
-        </>
       ) : null}
 
       <View style={styles.card}>
@@ -742,32 +555,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['theme']['colors'])
       flex: 1,
       backgroundColor: colors.background,
     },
-    statusGrid: {
-      gap: Space.md,
-    },
-    statusCard: {
-      borderRadius: Radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      padding: Space.lg,
-      gap: Space.sm,
-    },
-    statusHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Space.sm,
-    },
-    statusTitle: {
-      color: colors.text,
-      fontSize: FontSize.base,
-      fontWeight: FontWeight.semibold,
-    },
-    statusSummary: {
-      color: colors.textSubtle,
-      fontSize: FontSize.sm,
-      lineHeight: 20,
-    },
     card: {
       borderRadius: Radius.md,
       borderWidth: 1,
@@ -775,29 +562,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['theme']['colors'])
       backgroundColor: colors.surface,
       padding: Space.lg,
       gap: Space.md,
-    },
-    repairCard: {
-      borderRadius: Radius.md,
-      backgroundColor: colors.primary,
-      padding: Space.lg,
-      gap: Space.xs,
-    },
-    repairCardPressed: {
-      opacity: 0.9,
-    },
-    repairCardDisabled: {
-      opacity: 0.55,
-    },
-    repairTitle: {
-      color: colors.primaryText,
-      fontSize: FontSize.base,
-      fontWeight: FontWeight.semibold,
-    },
-    repairSubtitle: {
-      color: colors.primaryText,
-      fontSize: FontSize.sm,
-      lineHeight: 20,
-      opacity: 0.92,
     },
     cardTitle: {
       color: colors.text,

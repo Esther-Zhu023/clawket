@@ -169,6 +169,32 @@ export const analyticsEvents = {
     captureAnalyticsEvent('clawhub_install_tapped', properties);
   },
 
+  discoverSearchChanged(properties: {
+    has_query: boolean;
+  }): void {
+    captureAnalyticsEvent('discover_search_changed', properties);
+  },
+
+  discoverSkillOpened(properties: {
+    source: string;
+    location: 'home' | 'search' | 'detail';
+  }): void {
+    captureAnalyticsEvent('discover_skill_opened', properties);
+  },
+
+  discoverInstallTapped(properties: {
+    source: string;
+    location: 'detail' | 'webview';
+  }): void {
+    captureAnalyticsEvent('discover_install_tapped', properties);
+  },
+
+  discoverExternalOpened(properties: {
+    source: string;
+  }): void {
+    captureAnalyticsEvent('discover_external_opened', properties);
+  },
+
   pairRequestResolved(properties: {
     target: 'device' | 'node';
     decision: 'approve' | 'reject';

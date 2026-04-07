@@ -37,6 +37,7 @@ let sweatAnimTimer = 0;
 
 const VIRTUAL_WIDTH = WORLD_WIDTH;
 const VIRTUAL_HEIGHT = WORLD_HEIGHT;
+const TOP_GRASS_CROP_PX = TILE_SIZE * 3;
 
 export function initRenderer(canvasEl: HTMLCanvasElement): void {
   canvas = canvasEl;
@@ -89,6 +90,8 @@ export function render(characters: Character[]): void {
   advanceEffects();
 
   ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+  ctx.save();
+  ctx.translate(0, -TOP_GRASS_CROP_PX);
   drawScene(ctx, characters, screenAnimIndex, getSeatedBobOffset);
   drawOverlays(
     ctx,
@@ -97,6 +100,7 @@ export function render(characters: Character[]): void {
     getSeatedBobOffset,
     sweatAnimFrame,
   );
+  ctx.restore();
   drawEveningOverlay(ctx, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
   drawMenu(ctx, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 }
@@ -191,13 +195,18 @@ function handleTap(clientX: number, clientY: number): void {
     return;
   }
 
-  if (hitTestOfficeClock(point)) {
+  const scenePoint = {
+    x: point.x,
+    y: point.y + TOP_GRASS_CROP_PX,
+  };
+
+  if (hitTestOfficeClock(scenePoint)) {
     postToRN({ type: "HAPTIC" });
     triggerOfficeClockRecall();
     return;
   }
 
-  const propAction = resolvePropAction(point);
+  const propAction = resolvePropAction(scenePoint);
   if (propAction) {
     postToRN({ type: "HAPTIC" });
     postToRN(propAction);
@@ -205,7 +214,7 @@ function handleTap(clientX: number, clientY: number): void {
   }
 
   const character =
-    hitTestCharacter(point) ?? resolveDeskHitCharacter(point, latestCharacters);
+    hitTestCharacter(scenePoint) ?? resolveDeskHitCharacter(scenePoint, latestCharacters);
   if (!character) return;
   postToRN({ type: "HAPTIC" });
   openCharacterMenu(character.id, character);

@@ -51,6 +51,15 @@ export function ReleaseNotesHistoryScreen(): React.JSX.Element {
       return;
     }
 
+    if (entry.action.type === 'navigate_tab') {
+      navigation.getParent()?.dispatch(
+        CommonActions.navigate({
+          name: entry.action.screen,
+        }),
+      );
+      return;
+    }
+
     if (entry.action.type === 'navigate_console') {
       navigation.getParent()?.dispatch(
         CommonActions.navigate({
@@ -70,6 +79,7 @@ export function ReleaseNotesHistoryScreen(): React.JSX.Element {
 
     if (entry.action.type === 'navigate_config') {
       navigation.navigate(entry.action.screen);
+      return;
     }
   }, [navigation, t]);
 

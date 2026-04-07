@@ -184,6 +184,15 @@ export function ChatScreen({ openSidebarRequestAt, openAgentSessionsBoardRequest
 
     if (!parentNavigation) return;
 
+    if (entry.action.type === 'navigate_tab') {
+      parentNavigation.dispatch(
+        CommonActions.navigate({
+          name: entry.action.screen,
+        }),
+      );
+      return;
+    }
+
     if (entry.action.type === 'navigate_console') {
       parentNavigation.dispatch(
         CommonActions.navigate({
@@ -215,6 +224,7 @@ export function ChatScreen({ openSidebarRequestAt, openAgentSessionsBoardRequest
           },
         }),
       );
+      return;
     }
   }, [closeAnnouncement, navigation, t]);
 

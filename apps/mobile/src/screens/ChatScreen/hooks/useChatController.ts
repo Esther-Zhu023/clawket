@@ -887,6 +887,7 @@ export function useChatController({
 
       if (
         !shouldReconnectBeforeForegroundRefresh({
+          platformOs: Platform.OS,
           awayMs,
           hasRunningChat,
           connectionState: gateway.getConnectionState(),

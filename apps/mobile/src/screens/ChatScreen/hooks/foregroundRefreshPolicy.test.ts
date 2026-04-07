@@ -9,6 +9,7 @@ import {
 describe('shouldReconnectBeforeForegroundRefresh', () => {
   it('does not force reconnect while a run is still active', () => {
     expect(shouldReconnectBeforeForegroundRefresh({
+      platformOs: 'android',
       awayMs: FOREGROUND_RECONNECT_AWAY_MS + 1,
       hasRunningChat: true,
       connectionState: 'ready',
@@ -17,6 +18,7 @@ describe('shouldReconnectBeforeForegroundRefresh', () => {
 
   it('does not force reconnect after a short background gap', () => {
     expect(shouldReconnectBeforeForegroundRefresh({
+      platformOs: 'android',
       awayMs: FOREGROUND_RECONNECT_AWAY_MS - 1,
       hasRunningChat: false,
       connectionState: 'ready',
@@ -25,6 +27,7 @@ describe('shouldReconnectBeforeForegroundRefresh', () => {
 
   it('forces reconnect for long-idle ready sessions before refreshing history', () => {
     expect(shouldReconnectBeforeForegroundRefresh({
+      platformOs: 'android',
       awayMs: FOREGROUND_RECONNECT_AWAY_MS,
       hasRunningChat: false,
       connectionState: 'ready',
@@ -33,10 +36,20 @@ describe('shouldReconnectBeforeForegroundRefresh', () => {
 
   it('does not force reconnect while pairing approval is pending', () => {
     expect(shouldReconnectBeforeForegroundRefresh({
+      platformOs: 'android',
       awayMs: FOREGROUND_RECONNECT_AWAY_MS + 1,
       hasRunningChat: false,
       connectionState: 'pairing_pending',
     })).toBe(false);
+  });
+
+  it('forces reconnect on iOS even after a brief background gap', () => {
+    expect(shouldReconnectBeforeForegroundRefresh({
+      platformOs: 'ios',
+      awayMs: 1_000,
+      hasRunningChat: false,
+      connectionState: 'ready',
+    })).toBe(true);
   });
 });
 

@@ -17,6 +17,16 @@ export type RevenueCatConfig = {
   packageId?: string;
 };
 
+const PRIMARY_PAYWALL_PACKAGE_TYPES = [
+  'MONTHLY',
+  'ANNUAL',
+  'LIFETIME',
+] as const;
+
+function isPrimaryPaywallPackageType(packageType: string): boolean {
+  return PRIMARY_PAYWALL_PACKAGE_TYPES.includes(packageType as typeof PRIMARY_PAYWALL_PACKAGE_TYPES[number]);
+}
+
 export type ProSubscriptionSnapshot = {
   isActive: boolean;
   entitlementId: string;
@@ -367,6 +377,7 @@ export function selectRevenueCatPackages(
     config.packageId ? offering.availablePackages.find((item) => item.identifier === config.packageId) ?? null : null,
     offering.monthly,
     offering.annual,
+    offering.lifetime,
     ...offering.availablePackages,
   ].filter((item): item is PurchasesPackage => Boolean(item));
 
@@ -374,12 +385,10 @@ export function selectRevenueCatPackages(
     array.findIndex((candidate) => candidate.identifier === item.identifier) === index
   ));
 
-  const subscriptionPackages = unique.filter((item) => (
-    item.packageType === PACKAGE_TYPE.MONTHLY || item.packageType === PACKAGE_TYPE.ANNUAL
-  ));
+  const primaryPaywallPackages = unique.filter((item) => isPrimaryPaywallPackageType(item.packageType));
 
-  if (subscriptionPackages.length > 0) {
-    return subscriptionPackages;
+  if (primaryPaywallPackages.length > 0) {
+    return primaryPaywallPackages;
   }
 
   return unique.slice(0, 1);
@@ -393,7 +402,10 @@ export function selectDefaultRevenueCatPackage(
   if (config.packageId) {
     return packages.find((item) => item.packageIdentifier === config.packageId) ?? packages[0];
   }
-  return packages.find((item) => item.packageType === PACKAGE_TYPE.MONTHLY) ?? packages[0];
+  return packages.find((item) => item.packageType === 'MONTHLY')
+    ?? packages.find((item) => item.packageType === 'ANNUAL')
+    ?? packages.find((item) => item.packageType === 'LIFETIME')
+    ?? packages[0];
 }
 
 export function selectSnapshotRevenueCatPackage(
@@ -407,14 +419,21 @@ export function selectSnapshotRevenueCatPackage(
 
   const normalized = snapshot.productIdentifier.toLowerCase();
   if (
+    normalized.includes('life')
+    || normalized.includes('forever')
+    || normalized.includes('permanent')
+  ) {
+    return packages.find((item) => item.packageType === 'LIFETIME') ?? null;
+  }
+  if (
     normalized.includes('year')
     || normalized.includes('annual')
     || normalized.includes('annually')
   ) {
-    return packages.find((item) => item.packageType === PACKAGE_TYPE.ANNUAL) ?? null;
+    return packages.find((item) => item.packageType === 'ANNUAL') ?? null;
   }
   if (normalized.includes('month')) {
-    return packages.find((item) => item.packageType === PACKAGE_TYPE.MONTHLY) ?? null;
+    return packages.find((item) => item.packageType === 'MONTHLY') ?? null;
   }
   return null;
 }

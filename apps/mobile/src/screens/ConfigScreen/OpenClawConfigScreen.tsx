@@ -139,6 +139,10 @@ export function OpenClawConfigScreen(): React.JSX.Element {
     navigation.navigate('OpenClawPermissions');
   }, [navigation, requirePro]);
 
+  const handlePermissionRepairPress = useCallback(() => {
+    navigation.navigate('OpenClawPermissionRepair');
+  }, [navigation]);
+
   const handleRestartGatewayConfirm = useCallback(() => {
     Alert.alert(
       t('Restart Current Gateway?'),
@@ -350,6 +354,21 @@ export function OpenClawConfigScreen(): React.JSX.Element {
       ) : null}
 
       <View style={styles.secondaryCard}>
+        <ActionRow
+          title={t('One-click repair agent permissions')}
+          subtitle={t('Check key OpenClaw permissions and repair them in one tap')}
+          onPress={handlePermissionRepairPress}
+          styles={styles}
+          chevronColor={theme.colors.textSubtle}
+          icon={(
+            <View style={[styles.rowIconBadge, { backgroundColor: '#E9F8EE' }]}>
+              <Wrench size={17} strokeWidth={2.25} color="#248A4D" />
+            </View>
+          )}
+        />
+
+        <View style={styles.divider} />
+
         <ActionRow
           title={t('OpenClaw Permission Management')}
           subtitle={t('View and adjust common OpenClaw permissions')}

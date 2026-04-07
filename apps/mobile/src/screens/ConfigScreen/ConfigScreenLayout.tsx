@@ -22,7 +22,7 @@ import { ScrollView } from 'react-native-gesture-handler';
 import { EdgeInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, ChevronRight, Cloud, Eye, Gamepad2, Github, HelpCircle, Mic, Palette, Share2, ShieldCheck, ImageUp, Link2, Mail, MessageCircleMore, Minus, Plus, ScanLine, Sparkles, Star } from 'lucide-react-native';
+import { AppWindow, ChevronLeft, ChevronRight, Cloud, Eye, Gamepad2, Github, HelpCircle, Mic, Palette, Share2, ShieldCheck, Link2, Mail, MessageCircleMore, Minus, Plus, ScanLine, Sparkles, Star, ImageUp } from 'lucide-react-native';
 import { ConnectionHelpQuick, ConnectionHelpManual } from '../../components/config/ConnectionHelpSection';
 import { SwipeableGatewayRow, SwipeableMethods } from '../../components/config/SwipeableGatewayRow';
 import { IconButton, ModalSheet, SegmentedTabs, ThemedSwitch } from '../../components/ui';
@@ -549,7 +549,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
           <View style={[styles.row, styles.selectRow]}>
             <View style={styles.settingRowLead}>
               <RowIcon backgroundColor="#E9F4FF" styles={styles}>
-                <Palette size={17} strokeWidth={2.2} color="#2A74D8" fill="#2A74D8" />
+                <Palette size={17} strokeWidth={2.2} color="#2A74D8" />
               </RowIcon>
               <View style={styles.supportRowText}>
                 <Text style={styles.rowLabel}>{t('Theme')}</Text>
@@ -585,7 +585,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
             style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
           >
             <RowIcon backgroundColor="#FFF0DB" styles={styles}>
-              <Sparkles size={17} strokeWidth={2.2} color="#C97A00" fill="#C97A00" />
+              <Sparkles size={17} strokeWidth={2.2} color="#C97A00" />
             </RowIcon>
             <View style={styles.supportRowText}>
               <Text style={styles.rowLabel}>{t('Chat Appearance')}</Text>
@@ -604,7 +604,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
                 style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
               >
                 <RowIcon backgroundColor="#EEF3FF" styles={styles}>
-                  <Palette size={17} strokeWidth={2.2} color="#5765F2" fill="#5765F2" />
+                  <AppWindow size={17} strokeWidth={2.2} color="#5765F2" />
                 </RowIcon>
                 <View style={styles.supportRowText}>
                   <Text style={styles.rowLabel}>{t('App Icon')}</Text>
@@ -668,7 +668,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
           <View style={[styles.row, styles.selectRow]}>
             <View style={styles.settingRowLead}>
               <RowIcon backgroundColor="#FFF1E5" styles={styles}>
-                <Mic size={17} strokeWidth={2.2} color="#CC6C25" fill="#CC6C25" />
+                <Mic size={17} strokeWidth={2.2} color="#CC6C25" />
               </RowIcon>
               <View style={styles.supportRowText}>
                 <Text style={styles.rowLabel}>{t('Speech Recognition Language')}</Text>
@@ -730,7 +730,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
                 style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
               >
                 <RowIcon backgroundColor="#FFF4D6" styles={styles}>
-                  <Star size={17} strokeWidth={2.1} color="#D79A00" fill="#D79A00" />
+                  <Star size={17} strokeWidth={2.1} color="#D79A00" />
                 </RowIcon>
                 <View style={styles.supportRowText}>
                   <Text style={styles.rowLabel}>{t('Rate Clawket')}</Text>
@@ -750,7 +750,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
               style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
             >
               <RowIcon backgroundColor="#EEF1FF" styles={styles}>
-                <Gamepad2 size={17} strokeWidth={2.2} color="#596AE8" fill="#596AE8" />
+                <Gamepad2 size={17} strokeWidth={2.2} color="#596AE8" />
               </RowIcon>
               <View style={styles.supportRowText}>
                 <Text style={styles.rowLabel}>{t('Join Discord')}</Text>
@@ -768,7 +768,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
                 style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
               >
                 <RowIcon backgroundColor="#E7F7EC" styles={styles}>
-                  <MessageCircleMore size={17} strokeWidth={2.2} color="#1C9A57" fill="#1C9A57" />
+                  <MessageCircleMore size={17} strokeWidth={2.2} color="#1C9A57" />
                 </RowIcon>
                 <View style={styles.supportRowText}>
                   <Text style={styles.rowLabel}>{t('Join WeCom Group')}</Text>
@@ -803,7 +803,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
             style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
           >
             <RowIcon backgroundColor="#E8F7F8" styles={styles}>
-              <HelpCircle size={17} strokeWidth={2.2} color="#0B8C99" fill="#0B8C99" />
+              <HelpCircle size={17} strokeWidth={2.2} color="#0B8C99" />
             </RowIcon>
             <View style={styles.supportRowText}>
               <Text style={styles.rowLabel}>{t('Help Center')}</Text>
@@ -818,7 +818,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
             style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
           >
             <RowIcon backgroundColor="#F4EBFF" styles={styles}>
-              <Sparkles size={17} strokeWidth={2.2} color="#8A4DCC" fill="#8A4DCC" />
+              <Sparkles size={17} strokeWidth={2.2} color="#8A4DCC" />
             </RowIcon>
             <View style={styles.supportRowText}>
               <Text style={styles.rowLabel}>{t('Release Notes')}</Text>
@@ -835,7 +835,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
               style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
             >
               <RowIcon backgroundColor="#FFECEE" styles={styles}>
-                <Mail size={17} strokeWidth={2.2} color="#CC4D5F" fill="#CC4D5F" />
+                <Mail size={17} strokeWidth={2.2} color="#CC4D5F" />
               </RowIcon>
               <View style={styles.supportRowText}>
                 <Text style={styles.rowLabel}>{t('Send Feedback')}</Text>
@@ -853,7 +853,7 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
               style={({ pressed }) => [styles.row, styles.feedbackRow, pressed && styles.rowPressed]}
             >
               <RowIcon backgroundColor="#E8F3FF" styles={styles}>
-                <ShieldCheck size={17} strokeWidth={2.2} color="#2469D9" fill="#2469D9" />
+                <ShieldCheck size={17} strokeWidth={2.2} color="#2469D9" />
               </RowIcon>
               <View style={styles.supportRowText}>
                 <Text style={styles.rowLabel}>{t('Privacy Policy', { ns: 'common' })}</Text>
