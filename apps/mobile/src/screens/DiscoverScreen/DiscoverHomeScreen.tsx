@@ -10,9 +10,9 @@ import {
 import { ChevronRight } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { Card, EmptyState, LoadingState, SearchInput, createCardContentStyle } from '../../components/ui';
+import { useNativeStackModalHeader } from '../../hooks/useNativeStackModalHeader';
 import { useTabBarHeight } from '../../hooks/useTabBarHeight';
 import { searchDiscoverSkills } from '../../features/discover';
 import { fetchClawHubLatest, fetchClawHubTrending } from '../../features/discover/clawhub';
@@ -33,9 +33,9 @@ const SECTION_LIMIT = 4;
 export function DiscoverHomeScreen(): React.JSX.Element {
   const navigation = useNavigation<DiscoverNavigation>();
   const { theme } = useAppTheme();
-  const insets = useSafeAreaInsets();
   const tabBarHeight = useTabBarHeight();
   const { t } = useTranslation('common');
+  const parentNavigation = navigation.getParent();
 
   const [clawHubHot, setClawHubHot] = useState<DiscoverSkillItem[] | null>(null);
   const [skillsShHot, setSkillsShHot] = useState<DiscoverSkillItem[] | null>(null);
@@ -172,8 +172,14 @@ export function DiscoverHomeScreen(): React.JSX.Element {
     && clawHubFresh!.length === 0;
   const allFailed = allLoaded && Boolean(errors.clawHubHot && errors.skillsShHot && errors.clawHubFresh);
 
+  useNativeStackModalHeader({
+    navigation: parentNavigation as any,
+    title: t('Discover'),
+    onClose: () => parentNavigation?.goBack(),
+  });
+
   return (
-    <View style={[styles.root, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
+    <View style={[styles.root, { backgroundColor: theme.colors.background, paddingTop: 0 }]}>
       <ScrollView
         contentContainerStyle={createCardContentStyle({ top: Space.md, bottom: tabBarHeight + Space.xl })}
         scrollIndicatorInsets={{ bottom: tabBarHeight }}

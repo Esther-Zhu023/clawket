@@ -1,15 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  LayoutChangeEvent,
   StyleSheet,
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { CommonActions, useIsFocused, useNavigation } from '@react-navigation/native';
-import { useTranslation } from 'react-i18next';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WebViewMessageEvent } from 'react-native-webview/lib/WebViewTypes';
-import { ScreenHeader } from '../../components/ui';
 import { useAppContext } from '../../contexts/AppContext';
 import { analyticsEvents } from '../../services/analytics/events';
 import { StorageService } from '../../services/storage';
@@ -145,42 +141,22 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['theme']['colors'])
   });
 }
 
-type MainTabRouteName = 'Chat' | 'Console' | 'My';
-
 export function OfficeTab(): React.JSX.Element {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
-  const { t } = useTranslation('common');
-  const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme.colors), [theme]);
   const {
     gateway, config, debugMode, requestOfficeChat, requestChatSidebar, mainSessionKey, currentAgentId, agents,
     officeWebViewRef, officeMessageHandlerRef, officeLoadEndHandlerRef, officeDebugAppendRef,
-    foregroundEpoch, setOfficeViewportTopInset,
+    foregroundEpoch,
   } = useAppContext();
   const latestSessionsRef = useRef<SessionInfo[]>([]);
   const lastForegroundEpochRef = useRef<number>(foregroundEpoch);
   const mainTypingRef = useRef(false);
   const [channelSlots, setChannelSlots] = useState<OfficeChannelSlotConfig>(DEFAULT_OFFICE_CHANNEL_SLOT_CONFIG);
-  const [headerHeight, setHeaderHeight] = useState(0);
   const currentAgent = agents.find((a) => a.id === currentAgentId);
   const currentAgentName = currentAgent?.identity?.name?.trim() || currentAgent?.name?.trim() || null;
-
-  useEffect(() => {
-    setOfficeViewportTopInset(isFocused ? headerHeight : 0);
-  }, [headerHeight, isFocused, setOfficeViewportTopInset]);
-
-  useEffect(() => () => {
-    setOfficeViewportTopInset(0);
-  }, [setOfficeViewportTopInset]);
-
-  const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => {
-    const nextHeight = event.nativeEvent.layout.height;
-    setHeaderHeight(nextHeight);
-    if (!isFocused) return;
-    setOfficeViewportTopInset(nextHeight);
-  }, [isFocused, setOfficeViewportTopInset]);
 
   useEffect(() => {
     let mounted = true;
@@ -202,37 +178,27 @@ export function OfficeTab(): React.JSX.Element {
     officeDebugAppendRef.current?.(msg);
   }, [officeDebugAppendRef]);
 
-  const navigateToMainTab = useCallback((
-    screen: MainTabRouteName,
-    params?: Record<string, unknown>,
-  ) => {
+  const openAddConnectionModal = useCallback(() => {
+    const requestedAt = Date.now();
     navigation.dispatch(
       CommonActions.navigate({
-        name: 'MainTabs',
+        name: 'My',
         params: {
-          screen,
-          ...(params ? { params } : {}),
+          state: {
+            routes: [
+              {
+                name: 'ConfigHome',
+                params: {
+                  addConnectionRequestAt: requestedAt,
+                  addConnectionTab: 'quick',
+                },
+              },
+            ],
+          },
         },
       }),
     );
   }, [navigation]);
-
-  const openAddConnectionModal = useCallback(() => {
-    const requestedAt = Date.now();
-    navigateToMainTab('My', {
-      state: {
-        routes: [
-          {
-            name: 'ConfigHome',
-            params: {
-              addConnectionRequestAt: requestedAt,
-              addConnectionTab: 'quick',
-            },
-          },
-        ],
-      },
-    });
-  }, [navigateToMainTab]);
 
   const sendSessions = useCallback((sessions: SessionInfo[]) => {
     const now = Date.now();
@@ -633,7 +599,7 @@ export function OfficeTab(): React.JSX.Element {
             has_session_key: Boolean(sessionKey),
           });
           requestOfficeChat(sessionKey, roleId);
-          navigateToMainTab('Chat');
+          navigation.dispatch(CommonActions.navigate({ name: 'Chat' }));
         } else if (data.action === 'open_session' && typeof data.sessionKey === 'string') {
           analyticsEvents.officeOpenChatFromCharacter({
             action: 'open_session',
@@ -641,7 +607,7 @@ export function OfficeTab(): React.JSX.Element {
             has_session_key: true,
           });
           requestOfficeChat(data.sessionKey, roleId);
-          navigateToMainTab('Chat');
+          navigation.dispatch(CommonActions.navigate({ name: 'Chat' }));
         } else if (data.action === 'sessions') {
           const preset = getSidebarPresetForRole(roleId, channelSlots);
           analyticsEvents.officeOpenChatFromCharacter({
@@ -668,7 +634,7 @@ export function OfficeTab(): React.JSX.Element {
           setChannelSlots(nextSlots);
           void StorageService.setOfficeChannelSlots(nextSlots);
         } else if (data.action === 'console') {
-          navigateToMainTab('Console');
+          navigation.dispatch(CommonActions.navigate({ name: 'Console' }));
         } else if (data.action === 'models') {
           openConsoleModal('ModelList');
         } else if (data.action === 'connections') {
@@ -696,7 +662,7 @@ export function OfficeTab(): React.JSX.Element {
     } catch {
       // Ignore invalid messages from WebView.
     }
-  }, [appendDebug, channelSlots, debugMode, mainSessionKey, navigateToMainTab, openAddConnectionModal, openConsoleModal, requestChatSidebar, requestOfficeChat]);
+  }, [appendDebug, channelSlots, debugMode, mainSessionKey, navigation, openAddConnectionModal, openConsoleModal, requestChatSidebar, requestOfficeChat]);
 
   const handleLoadEnd = useCallback(() => {
     if (currentAgentName) {
@@ -753,14 +719,6 @@ export function OfficeTab(): React.JSX.Element {
   }, [handleLoadEnd, officeLoadEndHandlerRef]);
 
   return (
-    <View style={styles.container}>
-      <View onLayout={handleHeaderLayout}>
-        <ScreenHeader
-          title={t('Office')}
-          topInset={insets.top}
-          onBack={() => navigation.goBack()}
-        />
-      </View>
-    </View>
+    <View style={styles.container} />
   );
 }

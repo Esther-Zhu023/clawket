@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import { EmptyState, ScreenHeader, SearchInput, SegmentedTabs } from '../../components/ui';
+import { EmptyState, SearchInput, SegmentedTabs } from '../../components/ui';
 import { useTabBarHeight } from '../../hooks/useTabBarHeight';
+import { useNativeStackModalHeader } from '../../hooks/useNativeStackModalHeader';
 import type { SegmentedTabItem } from '../../components/ui';
 import { fetchSkillsShBrowseList } from '../../features/discover';
 import { searchSkillsSh } from '../../features/discover/skillsSh';
@@ -20,10 +20,15 @@ type Nav = NativeStackNavigationProp<DiscoverStackParamList, 'DiscoverSkillsShBr
 
 export function SkillsShBrowseScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
-  const insets = useSafeAreaInsets();
   const tabBarHeight = useTabBarHeight();
   const { theme } = useAppTheme();
   const { t } = useTranslation('common');
+
+  useNativeStackModalHeader({
+    navigation,
+    title: 'skills.sh',
+    onClose: () => navigation.goBack(),
+  });
 
   const tabs = useMemo<SegmentedTabItem<SkillsShBrowseView>[]>(() => ([
     { key: 'hot', label: t('Hot') },
@@ -99,7 +104,6 @@ export function SkillsShBrowseScreen(): React.JSX.Element {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-      <ScreenHeader title="skills.sh" topInset={insets.top} onBack={() => navigation.goBack()} />
       <FlatList
         data={data}
         keyExtractor={(item) => item.id}

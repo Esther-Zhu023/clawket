@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
+  Easing,
   FlatList,
   Pressable,
   RefreshControl,
@@ -13,7 +15,9 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import { ChevronDown, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState, IconButton, LoadingState, ScreenHeader, SearchInput, SegmentedTabs } from '../ui';
 import { AddModelModal, type AddModelDraft } from './AddModelModal';
 import { ModelConfigSection } from './ModelConfigSection';
@@ -36,11 +40,11 @@ import { addFallbackModel, moveFallbackModel, removeFallbackModelAt, sanitizeFal
 import {
   areModelCostsEqual,
   buildAddModelPatch,
-  buildModelAllowlistPatch,
+  buildBatchModelAllowlistPatch,
   buildModelCostPatch,
   hasExplicitModelAllowlist,
   hasConfiguredModel,
-  isModelInAllowlist,
+  listConfiguredModelAllowlistRefs,
   listExplicitConfiguredModels,
   listExplicitProviders,
   resolveModelCostEditorState,
@@ -151,7 +155,10 @@ export function ModelsView({
   const { t } = useTranslation('console');
   const { theme } = useAppTheme();
   const { isExpectedRestartActive } = useGatewayOverlay();
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme.colors), [theme]);
+  const allowlistBarAnimation = useRef(new Animated.Value(0)).current;
 
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,10 +174,12 @@ export function ModelsView({
   const [activeTab, setActiveTab] = useState<ModelsTab>('list');
   const [selectedModel, setSelectedModel] = useState<Model | null>(null);
   const [costDraft, setCostDraft] = useState<ModelCostDraft | null>(null);
+  const [draftAllowlistRefs, setDraftAllowlistRefs] = useState<string[]>([]);
+  const [allowlistDraftTouched, setAllowlistDraftTouched] = useState(false);
+  const [savingAllowlistChanges, setSavingAllowlistChanges] = useState(false);
   const [savingCost, setSavingCost] = useState(false);
   const [deletingModel, setDeletingModel] = useState(false);
   const [inlineDeletingRef, setInlineDeletingRef] = useState<string | null>(null);
-  const [togglingAllowlistRefs, setTogglingAllowlistRefs] = useState<Set<string>>(new Set());
   const [addModelProvider, setAddModelProvider] = useState<string | null>(null);
   const [addModelDraft, setAddModelDraft] = useState<AddModelDraft | null>(null);
   const [savingModel, setSavingModel] = useState(false);
@@ -202,6 +211,72 @@ export function ModelsView({
     if (current.length !== cleanFallbackModels.length) return true;
     return current.some((m, i) => m !== cleanFallbackModels[i]);
   }, [modelConfig?.defaultModel, modelConfig?.fallbackModels, modelConfig?.thinkingDefault, cleanDefaultModel, cleanFallbackModels, cleanThinkingDefault]);
+
+  const allowlistRefs = useMemo(() => listConfiguredModelAllowlistRefs(config), [config]);
+
+  useEffect(() => {
+    if (!allowlistDraftTouched) {
+      setDraftAllowlistRefs(allowlistRefs);
+    }
+  }, [allowlistDraftTouched, allowlistRefs]);
+
+  const pendingAllowlistChanges = useMemo(() => {
+    const nextRefSet = new Set(draftAllowlistRefs);
+    const currentRefSet = new Set(allowlistRefs);
+    const refs = Array.from(new Set([...draftAllowlistRefs, ...allowlistRefs])).sort((a, b) => a.localeCompare(b));
+
+    return refs
+      .filter((ref) => nextRefSet.has(ref) !== currentRefSet.has(ref))
+      .map((ref) => {
+        const slashIndex = ref.indexOf('/');
+        return {
+          ref,
+          provider: slashIndex > 0 ? ref.slice(0, slashIndex) : '',
+          modelId: slashIndex > 0 ? ref.slice(slashIndex + 1) : ref,
+          enabled: nextRefSet.has(ref),
+        };
+      });
+  }, [allowlistRefs, draftAllowlistRefs]);
+
+  const hasPendingAllowlistChanges = pendingAllowlistChanges.length > 0;
+
+  useEffect(() => {
+    if (allowlistDraftTouched && !hasPendingAllowlistChanges) {
+      setAllowlistDraftTouched(false);
+    }
+  }, [allowlistDraftTouched, hasPendingAllowlistChanges]);
+
+  useEffect(() => {
+    Animated.timing(allowlistBarAnimation, {
+      toValue: hasPendingAllowlistChanges ? 1 : 0,
+      duration: hasPendingAllowlistChanges ? 260 : 180,
+      easing: hasPendingAllowlistChanges ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [allowlistBarAnimation, hasPendingAllowlistChanges]);
+
+  const dismissAllowlistChanges = useCallback(() => {
+    setDraftAllowlistRefs(allowlistRefs);
+    setAllowlistDraftTouched(false);
+  }, [allowlistRefs]);
+
+  const confirmDiscardAllowlistChanges = useCallback((onDiscard: () => void) => {
+    Alert.alert(t('Discard changes?'), t('You have unsaved changes.'), [
+      { text: t('Keep Editing'), style: 'cancel' },
+      {
+        text: t('common:Cancel'),
+        style: 'destructive',
+        onPress: onDiscard,
+      },
+    ]);
+  }, [t]);
+
+  usePreventRemove(hasPendingAllowlistChanges, ({ data }) => {
+    confirmDiscardAllowlistChanges(() => {
+      dismissAllowlistChanges();
+      navigation.dispatch(data.action);
+    });
+  });
 
   const loadModels = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'initial') setLoading(true);
@@ -830,25 +905,8 @@ export function ModelsView({
     }
   }, [addModelDraft, addModelProvider, config, configHash, loadModels, patchWithRestart, t]);
 
-  const handleAllowlistToggle = useCallback(async (model: Model, nextValue: boolean) => {
-    if (!configHash) {
-      Alert.alert(t('common:Error'), t('Model cost settings are unavailable. Please refresh and try again.'));
-      return;
-    }
-
-    const patch = buildModelAllowlistPatch({
-      config,
-      provider: model.provider,
-      modelId: model.id,
-      enabled: nextValue,
-    });
-    if (!patch) {
-      return;
-    }
-
+  const handleAllowlistToggle = useCallback((model: Model, nextValue: boolean) => {
     const ref = `${model.provider}/${model.id}`;
-    const allowlistConfigured = hasExplicitModelAllowlist(config);
-    const willInitializeAllowlist = nextValue && !allowlistConfigured;
 
     analyticsEvents.modelAllowlistToggled({
       provider: model.provider,
@@ -856,43 +914,61 @@ export function ModelsView({
       source: 'models_list',
     });
 
-    setTogglingAllowlistRefs((prev) => {
+    setDraftAllowlistRefs((prev) => {
       const next = new Set(prev);
-      next.add(ref);
-      return next;
+      if (nextValue) {
+        next.add(ref);
+      } else {
+        next.delete(ref);
+      }
+      return Array.from(next).sort((a, b) => a.localeCompare(b));
     });
+    setAllowlistDraftTouched(true);
+  }, []);
 
+  const handleSaveAllowlistChanges = useCallback(async () => {
+    if (!configHash) {
+      Alert.alert(t('common:Error'), t('Model cost settings are unavailable. Please refresh and try again.'));
+      return;
+    }
+
+    const patch = buildBatchModelAllowlistPatch({
+      config,
+      changes: pendingAllowlistChanges,
+    });
+    if (!patch) {
+      dismissAllowlistChanges();
+      return;
+    }
+
+    const willInitializeAllowlist = pendingAllowlistChanges.some((change) => change.enabled) && !hasExplicitModelAllowlist(config);
+
+    setSavingAllowlistChanges(true);
     const success = await patchWithRestart({
       patch,
       configHash,
       confirmation: {
-        title: nextValue ? t('Enable in Allowlist') : t('Disable in Allowlist'),
+        title: t('Save Changes'),
         message: willInitializeAllowlist
-          ? t('This will create a new model allowlist with this model and restart Gateway. Other models may disappear until you enable them too. Continue?')
-          : nextValue
-            ? t('This will add the selected model to agents.defaults.models and restart Gateway. Continue?')
-            : t('This will remove the selected model from agents.defaults.models and restart Gateway. Continue?'),
+          ? t('This will create a new model allowlist from your pending selections and restart Gateway once. Models left off may disappear until you enable them again. Continue?')
+          : t('This will apply your pending model changes and restart Gateway once. Continue?'),
       },
-      savingMessage: nextValue ? t('Updating allowlist...') : t('Updating allowlist...'),
-      restartingMessage: t('Restarting Gateway to apply allowlist...'),
+      savingMessage: t('common:Saving settings...'),
+      restartingMessage: t('common:Restarting Gateway to apply changes...'),
       onSuccess: async () => {
+        setAllowlistDraftTouched(false);
         await loadModels('refresh');
       },
       onError: async () => {
         await loadModels('refresh');
       },
     });
-
-    setTogglingAllowlistRefs((prev) => {
-      const next = new Set(prev);
-      next.delete(ref);
-      return next;
-    });
+    setSavingAllowlistChanges(false);
 
     if (!success) {
       return;
     }
-  }, [config, configHash, loadModels, patchWithRestart, t]);
+  }, [config, configHash, dismissAllowlistChanges, loadModels, patchWithRestart, pendingAllowlistChanges, t]);
 
   const renderItem = useCallback(({ item }: { item: ListRow }) => {
     if (item.type === 'provider-header') {
@@ -937,8 +1013,7 @@ export function ModelsView({
     const fullRef = `${model.provider}/${model.id}`;
     const isCopied = copiedRef === fullRef;
     const ctxLabel = formatContextWindow(model.contextWindow);
-    const inAllowlist = isModelInAllowlist(config, model.provider, model.id);
-    const togglingAllowlist = togglingAllowlistRefs.has(fullRef);
+    const inAllowlist = draftAllowlistRefs.includes(fullRef);
     const configuredModel = hasConfiguredModel(config, model.provider, model.id);
     const costState = resolveModelCostEditorState({
       config,
@@ -990,8 +1065,8 @@ export function ModelsView({
           ) : (
             <Switch
               value={inAllowlist}
-              onValueChange={(value) => { void handleAllowlistToggle(model, value); }}
-              disabled={togglingAllowlist}
+              onValueChange={(value) => { handleAllowlistToggle(model, value); }}
+              disabled={savingAllowlistChanges}
               trackColor={{
                 false: theme.colors.surfaceMuted,
                 true: theme.colors.primary,
@@ -1046,12 +1121,13 @@ export function ModelsView({
     copiedRef,
     config,
     deletingModel,
+    draftAllowlistRefs,
     inlineDeletingRef,
-    togglingAllowlistRefs,
     handleAllowlistToggle,
     handleInlineAllowlistOnlyDelete,
     openCostEditor,
     openAddModel,
+    savingAllowlistChanges,
     t,
   ]);
 
@@ -1062,7 +1138,14 @@ export function ModelsView({
       modelConfig.loadingSettings ||
       modelConfig.savingSettings;
     return (
-      <ScrollView contentContainerStyle={styles.settingsContent}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.settingsContent,
+          hasPendingAllowlistChanges && {
+            paddingBottom: Space.xxxl + 112 + Math.max(insets.bottom, Space.md),
+          },
+        ]}
+      >
         <ModelConfigSection
           model={modelConfig.defaultModel}
           fallbacks={modelConfig.fallbackModels}
@@ -1107,7 +1190,7 @@ export function ModelsView({
         </Pressable>
       </ScrollView>
     );
-  }, [modelConfig, styles, theme.colors, modelPickerModels, removeFallbackModel, isDirty]);
+  }, [hasPendingAllowlistChanges, insets.bottom, isDirty, modelConfig, modelPickerModels, removeFallbackModel, styles, theme.colors]);
 
   const modelListContent = (
     <>
@@ -1142,7 +1225,12 @@ export function ModelsView({
         <FlatList<ListRow>
           data={listData}
           keyExtractor={keyExtractor}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            hasPendingAllowlistChanges && {
+              paddingBottom: Space.xxxl + 112 + Math.max(insets.bottom, Space.md),
+            },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1189,6 +1277,57 @@ export function ModelsView({
       ) : (
         modelListContent
       )}
+
+      <Animated.View
+        pointerEvents={hasPendingAllowlistChanges ? 'auto' : 'none'}
+        style={[
+          styles.pendingBarWrap,
+          {
+            paddingBottom: Math.max(insets.bottom, Space.md),
+            opacity: allowlistBarAnimation,
+            transform: [
+              {
+                translateY: allowlistBarAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [24, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.pendingBar}>
+          <View style={styles.pendingBarTextWrap}>
+            <Text style={styles.pendingBarTitle}>{t('You have unsaved changes.')}</Text>
+            <Text style={styles.pendingBarSubtitle}>{t('Save ({{count}})', { count: pendingAllowlistChanges.length })}</Text>
+          </View>
+          <View style={styles.pendingBarActions}>
+            <TouchableOpacity
+              style={styles.pendingCancelButton}
+              onPress={() => {
+                if (!hasPendingAllowlistChanges || savingAllowlistChanges) {
+                  return;
+                }
+                confirmDiscardAllowlistChanges(dismissAllowlistChanges);
+              }}
+              activeOpacity={0.7}
+              disabled={savingAllowlistChanges}
+            >
+              <Text style={styles.pendingCancelLabel}>{t('common:Cancel')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pendingSaveButton, savingAllowlistChanges && styles.pendingSaveButtonDisabled]}
+              onPress={() => { void handleSaveAllowlistChanges(); }}
+              activeOpacity={0.7}
+              disabled={savingAllowlistChanges}
+            >
+              <Text style={styles.pendingSaveLabel}>
+                {savingAllowlistChanges ? t('common:Saving...') : t('Save ({{count}})', { count: pendingAllowlistChanges.length })}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Animated.View>
 
       {modelConfig ? (
         <>
@@ -1536,6 +1675,74 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['theme']['colors'])
     },
     configButtonDisabled: {
       opacity: 0.55,
+    },
+    pendingBarWrap: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      paddingHorizontal: Space.md,
+      paddingTop: Space.sm,
+    },
+    pendingBar: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: Radius.lg,
+      paddingHorizontal: Space.md,
+      paddingTop: Space.md,
+      paddingBottom: Space.md,
+      ...Shadow.md,
+    },
+    pendingBarTextWrap: {
+      marginBottom: Space.md,
+      gap: 3,
+    },
+    pendingBarTitle: {
+      color: colors.text,
+      fontSize: FontSize.base,
+      fontWeight: FontWeight.semibold,
+    },
+    pendingBarSubtitle: {
+      color: colors.textMuted,
+      fontSize: FontSize.sm,
+    },
+    pendingBarActions: {
+      flexDirection: 'row',
+      gap: Space.sm,
+    },
+    pendingCancelButton: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 46,
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: Space.md,
+    },
+    pendingCancelLabel: {
+      color: colors.textMuted,
+      fontSize: FontSize.base,
+      fontWeight: FontWeight.semibold,
+    },
+    pendingSaveButton: {
+      flex: 1.35,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 46,
+      borderRadius: Radius.md,
+      backgroundColor: colors.primary,
+      paddingHorizontal: Space.md,
+    },
+    pendingSaveButtonDisabled: {
+      opacity: 0.6,
+    },
+    pendingSaveLabel: {
+      color: colors.primaryText,
+      fontSize: FontSize.base,
+      fontWeight: FontWeight.semibold,
     },
   });
 }

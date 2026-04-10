@@ -984,6 +984,21 @@ export function ConfigScreenLayout({ insets, tabBarHeight, controller }: Props):
                   Customer App User ID: {revenueCatDiagnostics?.appUserId ?? 'missing'}
                 </Text>
                 <Text style={styles.deviceId}>
+                  Snapshot product: {revenueCatDiagnostics?.snapshotProductIdentifier ?? 'missing'}
+                </Text>
+                <Text style={styles.deviceId}>
+                  Snapshot plan: {revenueCatDiagnostics?.snapshotProductPlanIdentifier ?? 'missing'}
+                </Text>
+                <Text style={styles.deviceId}>
+                  Active subscriptions: {revenueCatDiagnostics?.activeSubscriptionProductIdentifiers?.join(', ') || 'none'}
+                </Text>
+                <Text style={styles.deviceId}>
+                  Purchased products: {revenueCatDiagnostics?.purchasedProductIdentifiers?.join(', ') || 'none'}
+                </Text>
+                <Text style={styles.deviceId}>
+                  Non-subscription purchases: {revenueCatDiagnostics?.nonSubscriptionProductIdentifiers?.join(', ') || 'none'}
+                </Text>
+                <Text style={styles.deviceId}>
                   `getPaywallPackages()`: {revenueCatDiagnostics?.offeringsStatus ?? 'unknown'}
                 </Text>
                 <Text style={styles.deviceId}>

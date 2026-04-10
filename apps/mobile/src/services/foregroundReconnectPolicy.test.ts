@@ -1,11 +1,11 @@
 import {
-  APP_FOREGROUND_RECONNECT_AWAY_MS,
-  shouldReconnectGatewayOnForegroundResume,
+  APP_FOREGROUND_PROBE_AWAY_MS,
+  shouldProbeGatewayOnForegroundResume,
 } from './foregroundReconnectPolicy';
 
-describe('shouldReconnectGatewayOnForegroundResume', () => {
-  it('forces reconnect on iOS after any real background gap', () => {
-    expect(shouldReconnectGatewayOnForegroundResume({
+describe('shouldProbeGatewayOnForegroundResume', () => {
+  it('probes on iOS after any real background gap', () => {
+    expect(shouldProbeGatewayOnForegroundResume({
       platformOs: 'ios',
       awayMs: 1_000,
       connectionState: 'ready',
@@ -13,15 +13,15 @@ describe('shouldReconnectGatewayOnForegroundResume', () => {
   });
 
   it('keeps the old threshold for non-iOS ready transports', () => {
-    expect(shouldReconnectGatewayOnForegroundResume({
+    expect(shouldProbeGatewayOnForegroundResume({
       platformOs: 'android',
-      awayMs: APP_FOREGROUND_RECONNECT_AWAY_MS - 1,
+      awayMs: APP_FOREGROUND_PROBE_AWAY_MS - 1,
       connectionState: 'ready',
     })).toBe(false);
   });
 
-  it('still reconnects immediately when the transport is already not ready', () => {
-    expect(shouldReconnectGatewayOnForegroundResume({
+  it('still probes immediately when the transport is already not ready', () => {
+    expect(shouldProbeGatewayOnForegroundResume({
       platformOs: 'android',
       awayMs: 500,
       connectionState: 'closed',
@@ -29,7 +29,7 @@ describe('shouldReconnectGatewayOnForegroundResume', () => {
   });
 
   it('does not override pairing-pending recovery state', () => {
-    expect(shouldReconnectGatewayOnForegroundResume({
+    expect(shouldProbeGatewayOnForegroundResume({
       platformOs: 'ios',
       awayMs: 5_000,
       connectionState: 'pairing_pending',

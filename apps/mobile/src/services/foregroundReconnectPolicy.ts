@@ -1,8 +1,8 @@
 import type { ConnectionState } from '../types';
 
-export const APP_FOREGROUND_RECONNECT_AWAY_MS = 60_000;
+export const APP_FOREGROUND_PROBE_AWAY_MS = 60_000;
 
-export function shouldReconnectGatewayOnForegroundResume(input: {
+export function shouldProbeGatewayOnForegroundResume(input: {
   platformOs: string;
   awayMs: number;
   connectionState: ConnectionState;
@@ -17,5 +17,5 @@ export function shouldReconnectGatewayOnForegroundResume(input: {
     return true;
   }
 
-  return input.connectionState !== 'ready' || input.awayMs >= APP_FOREGROUND_RECONNECT_AWAY_MS;
+  return input.connectionState !== 'ready' || input.awayMs >= APP_FOREGROUND_PROBE_AWAY_MS;
 }

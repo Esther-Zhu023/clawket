@@ -36,6 +36,8 @@
   "This will create a new model allowlist with this model and restart Gateway. Other models may disappear until you enable them too. Continue?": "这会用当前模型创建一个新的模型 allowlist 并重启 Gateway。其他模型可能会消失，直到你也把它们重新启用。是否继续？",
   "This will add the selected model to agents.defaults.models and restart Gateway. Continue?": "这会把所选模型加入 agents.defaults.models 并重启 Gateway。是否继续？",
   "This will remove the selected model from agents.defaults.models and restart Gateway. Continue?": "这会把所选模型从 agents.defaults.models 中移除并重启 Gateway。是否继续？",
+  "This will apply your pending model changes and restart Gateway once. Continue?": "这会一次性应用你待保存的模型更改，并重启一次 Gateway。是否继续？",
+  "This will create a new model allowlist from your pending selections and restart Gateway once. Models left off may disappear until you enable them again. Continue?": "这会根据你待保存的选择创建新的模型 allowlist，并只重启一次 Gateway。未启用的模型可能会暂时消失，直到你再次启用它们。是否继续？",
   "Updating allowlist...": "正在更新 allowlist...",
   "Restarting Gateway to apply allowlist...": "正在重启 Gateway 以应用 allowlist...",
   "This model cannot be edited because its provider is not explicitly declared in Gateway config.": "无法编辑此模型，因为它的 provider 未在 Gateway 配置中显式声明。",

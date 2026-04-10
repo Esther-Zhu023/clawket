@@ -36,6 +36,8 @@
   "This will create a new model allowlist with this model and restart Gateway. Other models may disappear until you enable them too. Continue?": "Esto creará una nueva allowlist de modelos con este modelo y reiniciará Gateway. Otros modelos pueden desaparecer hasta que también los vuelvas a habilitar. ¿Continuar?",
   "This will add the selected model to agents.defaults.models and restart Gateway. Continue?": "Esto agregará el modelo seleccionado a agents.defaults.models y reiniciará Gateway. ¿Continuar?",
   "This will remove the selected model from agents.defaults.models and restart Gateway. Continue?": "Esto quitará el modelo seleccionado de agents.defaults.models y reiniciará Gateway. ¿Continuar?",
+  "This will apply your pending model changes and restart Gateway once. Continue?": "Esto aplicará tus cambios de modelo pendientes de una sola vez y reiniciará Gateway una vez. ¿Continuar?",
+  "This will create a new model allowlist from your pending selections and restart Gateway once. Models left off may disappear until you enable them again. Continue?": "Esto creará una nueva allowlist de modelos a partir de tus selecciones pendientes y reiniciará Gateway una vez. Los modelos que dejes desactivados pueden desaparecer hasta que los vuelvas a habilitar. ¿Continuar?",
   "Updating allowlist...": "Actualizando allowlist...",
   "Restarting Gateway to apply allowlist...": "Reiniciando Gateway para aplicar la allowlist...",
   "This model cannot be edited because its provider is not explicitly declared in Gateway config.": "Este modelo no se puede editar porque su provider no está declarado explícitamente en la configuración de Gateway.",

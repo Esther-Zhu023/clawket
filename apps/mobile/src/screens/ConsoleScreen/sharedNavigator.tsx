@@ -38,9 +38,11 @@ import { ChatHistoryDetailScreen } from './ChatHistoryDetailScreen';
 import { FavoriteMessageDetailScreen } from './FavoriteMessageDetailScreen';
 import { SessionsBoardScreen } from './SessionsBoardScreen';
 import { AgentSessionsBoardScreen } from './AgentSessionsBoardScreen';
+import { DiscoverTab } from '../DiscoverScreen/DiscoverTab';
 
 export type ConsoleStackParamList = {
   ConsoleMenu: undefined;
+  Discover: undefined;
   FileList: undefined;
   FileEditor: { fileName: string };
   CronList: undefined;
@@ -211,6 +213,7 @@ export function renderConsoleModalScreens({
 }: ConsoleModalScreenListArgs): React.ReactNode[] {
   return (
     [
+      renderScreen('Discover', DiscoverTab, nativeModalHeaderOptions),
       renderScreen('FileList', FileListScreen, nativeModalHeaderOptions),
       renderScreen('FileEditor', FileEditorScreen, editorScreenOptions),
       renderScreen('CronList', CronListScreen, nativeModalHeaderOptions),

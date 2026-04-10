@@ -11,9 +11,9 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import { EmptyState, ScreenHeader, SearchInput } from '../../components/ui';
+import { EmptyState, SearchInput } from '../../components/ui';
+import { useNativeStackModalHeader } from '../../hooks/useNativeStackModalHeader';
 import { useTabBarHeight } from '../../hooks/useTabBarHeight';
 import { fetchClawHubBrowsePage } from '../../features/discover';
 import { searchClawHubSkills } from '../../features/discover/clawhub';
@@ -32,7 +32,6 @@ const PAGE_SIZE = 24;
 export function ClawHubBrowseScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteParams>();
-  const insets = useSafeAreaInsets();
   const tabBarHeight = useTabBarHeight();
   const { theme } = useAppTheme();
   const { t } = useTranslation('common');
@@ -62,6 +61,12 @@ export function ClawHubBrowseScreen(): React.JSX.Element {
 
   const requestIdRef = useRef(0);
   const styles = useMemo(() => createStyles(theme.colors), [theme]);
+
+  useNativeStackModalHeader({
+    navigation,
+    title: t('ClawHub'),
+    onClose: () => navigation.goBack(),
+  });
 
   useEffect(() => {
     const timeout = setTimeout(() => setDebouncedQuery(query.trim()), 280);
@@ -204,7 +209,6 @@ export function ClawHubBrowseScreen(): React.JSX.Element {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-      <ScreenHeader title={t('ClawHub')} topInset={insets.top} onBack={() => navigation.goBack()} />
       <FlatList
         data={data}
         keyExtractor={(item) => item.id}

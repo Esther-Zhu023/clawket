@@ -36,6 +36,8 @@
   "This will create a new model allowlist with this model and restart Gateway. Other models may disappear until you enable them too. Continue?": "이 모델로 새 model allowlist를 만들고 Gateway를 재시작합니다. 다른 모델은 다시 활성화할 때까지 사라질 수 있습니다. 계속할까요?",
   "This will add the selected model to agents.defaults.models and restart Gateway. Continue?": "선택한 모델을 agents.defaults.models에 추가하고 Gateway를 재시작합니다. 계속할까요?",
   "This will remove the selected model from agents.defaults.models and restart Gateway. Continue?": "선택한 모델을 agents.defaults.models에서 제거하고 Gateway를 재시작합니다. 계속할까요?",
+  "This will apply your pending model changes and restart Gateway once. Continue?": "보류 중인 모델 변경 사항을 한 번에 적용하고 Gateway를 한 번 다시 시작합니다. 계속할까요?",
+  "This will create a new model allowlist from your pending selections and restart Gateway once. Models left off may disappear until you enable them again. Continue?": "보류 중인 선택으로 새 model allowlist를 만들고 Gateway를 한 번 다시 시작합니다. 꺼 둔 모델은 다시 활성화할 때까지 사라질 수 있습니다. 계속할까요?",
   "Updating allowlist...": "allowlist 업데이트 중...",
   "Restarting Gateway to apply allowlist...": "allowlist 적용을 위해 Gateway 재시작 중...",
   "This model cannot be edited because its provider is not explicitly declared in Gateway config.": "이 모델은 provider 가 Gateway 설정에 명시적으로 선언되어 있지 않아 편집할 수 없습니다.",

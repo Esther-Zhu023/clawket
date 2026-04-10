@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
 import Purchases, {
   type CustomerInfo,
-  PACKAGE_TYPE,
   PURCHASES_ERROR_CODE,
   type PurchasesError,
   type PurchasesOffering,
@@ -32,6 +31,9 @@ export type ProSubscriptionSnapshot = {
   entitlementId: string;
   productIdentifier: string | null;
   productPlanIdentifier: string | null;
+  activeSubscriptionProductIdentifiers: string[];
+  purchasedProductIdentifiers: string[];
+  nonSubscriptionProductIdentifiers: string[];
   originalPurchaseDate: string | null;
   latestPurchaseDate: string | null;
   expirationDate: string | null;
@@ -82,6 +84,11 @@ export type RevenueCatDiagnostics = {
   customerInfoStatus: 'ok' | 'not_configured' | 'error';
   customerInfoError: string | null;
   appUserId: string | null;
+  snapshotProductIdentifier: string | null;
+  snapshotProductPlanIdentifier: string | null;
+  activeSubscriptionProductIdentifiers: string[];
+  purchasedProductIdentifiers: string[];
+  nonSubscriptionProductIdentifiers: string[];
   offeringsStatus: 'ok' | 'not_configured' | 'error';
   offeringsCount: number | null;
   offeringsError: string | null;
@@ -97,6 +104,15 @@ function isDevRuntime(): boolean {
 
 function trimEnv(value: string | undefined | null): string {
   return value?.trim() ?? '';
+}
+
+function normalizeIdentifiers(values: Array<string | null | undefined>): string[] {
+  const unique = new Set<string>();
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (normalized) unique.add(normalized);
+  }
+  return [...unique];
 }
 
 function maskSecret(value: string | null | undefined): string | null {
@@ -146,6 +162,11 @@ function createRevenueCatDiagnosticsBase(): RevenueCatDiagnostics {
     customerInfoStatus: 'not_configured',
     customerInfoError: null,
     appUserId: null,
+    snapshotProductIdentifier: null,
+    snapshotProductPlanIdentifier: null,
+    activeSubscriptionProductIdentifiers: [],
+    purchasedProductIdentifiers: [],
+    nonSubscriptionProductIdentifiers: [],
     offeringsStatus: 'not_configured',
     offeringsCount: null,
     offeringsError: null,
@@ -157,8 +178,8 @@ let runtimeRevenueCatDiagnostics: RevenueCatDiagnostics = createRevenueCatDiagno
 
 function updateRevenueCatDiagnostics(patch: Partial<RevenueCatDiagnostics>): void {
   runtimeRevenueCatDiagnostics = {
-    ...runtimeRevenueCatDiagnostics,
     ...createRevenueCatDiagnosticsBase(),
+    ...runtimeRevenueCatDiagnostics,
     ...patch,
     lastUpdatedAt: new Date().toISOString(),
   };
@@ -306,6 +327,11 @@ export async function collectRevenueCatDiagnostics(): Promise<RevenueCatDiagnost
     } else {
       diagnostics.customerInfoStatus = 'ok';
       diagnostics.appUserId = result.snapshot.originalAppUserId;
+      diagnostics.snapshotProductIdentifier = result.snapshot.productIdentifier;
+      diagnostics.snapshotProductPlanIdentifier = result.snapshot.productPlanIdentifier;
+      diagnostics.activeSubscriptionProductIdentifiers = result.snapshot.activeSubscriptionProductIdentifiers;
+      diagnostics.purchasedProductIdentifiers = result.snapshot.purchasedProductIdentifiers;
+      diagnostics.nonSubscriptionProductIdentifiers = result.snapshot.nonSubscriptionProductIdentifiers;
     }
   } catch (error) {
     diagnostics.customerInfoStatus = 'error';
@@ -326,8 +352,8 @@ export async function collectRevenueCatDiagnostics(): Promise<RevenueCatDiagnost
 
 export function getRevenueCatRuntimeDiagnostics(): RevenueCatDiagnostics {
   return {
-    ...runtimeRevenueCatDiagnostics,
     ...createRevenueCatDiagnosticsBase(),
+    ...runtimeRevenueCatDiagnostics,
   };
 }
 
@@ -335,24 +361,30 @@ export function deriveProSubscriptionSnapshot(
   customerInfo: CustomerInfo,
   entitlementId: string,
 ): ProSubscriptionSnapshot {
-  const entitlement = customerInfo.entitlements.all[entitlementId]
-    ?? customerInfo.entitlements.active[entitlementId]
+  const activeEntitlement = customerInfo.entitlements.active[entitlementId] ?? null;
+  const entitlement = activeEntitlement
+    ?? customerInfo.entitlements.all[entitlementId]
     ?? null;
 
   return {
-    isActive: Boolean(customerInfo.entitlements.active[entitlementId]?.isActive),
+    isActive: Boolean(activeEntitlement?.isActive),
     entitlementId,
-    productIdentifier: entitlement?.productIdentifier ?? null,
-    productPlanIdentifier: entitlement?.productPlanIdentifier ?? null,
-    originalPurchaseDate: entitlement?.originalPurchaseDate ?? customerInfo.originalPurchaseDate ?? null,
-    latestPurchaseDate: entitlement?.latestPurchaseDate ?? null,
-    expirationDate: entitlement?.expirationDate ?? null,
-    willRenew: entitlement?.willRenew ?? false,
-    store: entitlement?.store ?? null,
+    productIdentifier: activeEntitlement?.productIdentifier ?? entitlement?.productIdentifier ?? null,
+    productPlanIdentifier: activeEntitlement?.productPlanIdentifier ?? entitlement?.productPlanIdentifier ?? null,
+    activeSubscriptionProductIdentifiers: normalizeIdentifiers(customerInfo.activeSubscriptions ?? []),
+    purchasedProductIdentifiers: normalizeIdentifiers(customerInfo.allPurchasedProductIdentifiers ?? []),
+    nonSubscriptionProductIdentifiers: normalizeIdentifiers(
+      (customerInfo.nonSubscriptionTransactions ?? []).map((item) => item.productIdentifier),
+    ),
+    originalPurchaseDate: activeEntitlement?.originalPurchaseDate ?? entitlement?.originalPurchaseDate ?? customerInfo.originalPurchaseDate ?? null,
+    latestPurchaseDate: activeEntitlement?.latestPurchaseDate ?? entitlement?.latestPurchaseDate ?? null,
+    expirationDate: activeEntitlement?.expirationDate ?? entitlement?.expirationDate ?? null,
+    willRenew: activeEntitlement?.willRenew ?? entitlement?.willRenew ?? false,
+    store: activeEntitlement?.store ?? entitlement?.store ?? null,
     managementURL: customerInfo.managementURL ?? null,
     originalAppUserId: customerInfo.originalAppUserId ?? null,
     requestDate: customerInfo.requestDate ?? null,
-    verification: entitlement?.verification ?? customerInfo.entitlements.verification ?? null,
+    verification: activeEntitlement?.verification ?? entitlement?.verification ?? customerInfo.entitlements.verification ?? null,
   };
 }
 
@@ -408,34 +440,87 @@ export function selectDefaultRevenueCatPackage(
     ?? packages[0];
 }
 
-export function selectSnapshotRevenueCatPackage(
+export function selectActiveRecurringRevenueCatPackage(
   packages: ProPaywallPackage[],
   snapshot: ProSubscriptionSnapshot | null,
 ): ProPaywallPackage | null {
-  if (!snapshot?.productIdentifier) return null;
+  const activeSubscriptionIdentifiers = (snapshot?.activeSubscriptionProductIdentifiers ?? [])
+    .map((value) => value.toLowerCase());
+  if (activeSubscriptionIdentifiers.length === 0) return null;
 
-  const directMatch = packages.find((item) => item.productIdentifier === snapshot.productIdentifier) ?? null;
+  return packages.find((item) => {
+    if (item.packageType !== 'MONTHLY' && item.packageType !== 'ANNUAL') return false;
+    const packageIdentifier = item.productIdentifier?.toLowerCase();
+    return Boolean(packageIdentifier && activeSubscriptionIdentifiers.includes(packageIdentifier));
+  }) ?? null;
+}
+
+export function selectOwnedLifetimeRevenueCatPackage(
+  packages: ProPaywallPackage[],
+  snapshot: ProSubscriptionSnapshot | null,
+): ProPaywallPackage | null {
+  const nonSubscriptionIdentifiers = (snapshot?.nonSubscriptionProductIdentifiers ?? [])
+    .map((value) => value.toLowerCase());
+  if (nonSubscriptionIdentifiers.length === 0) return null;
+
+  const exactMatch = packages.find((item) => {
+    if (item.packageType !== 'LIFETIME') return false;
+    const packageIdentifier = item.productIdentifier?.toLowerCase();
+    return Boolean(packageIdentifier && nonSubscriptionIdentifiers.includes(packageIdentifier));
+  }) ?? null;
+  if (exactMatch) return exactMatch;
+
+  return null;
+}
+
+export function selectSnapshotRevenueCatPackageByMetadata(
+  packages: ProPaywallPackage[],
+  snapshot: ProSubscriptionSnapshot | null,
+): ProPaywallPackage | null {
+  const identifiers = [snapshot?.productPlanIdentifier, snapshot?.productIdentifier]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase());
+  if (identifiers.length === 0) return null;
+
+  const directMatch = packages.find((item) => {
+    const packageIdentifier = item.productIdentifier?.toLowerCase();
+    return Boolean(packageIdentifier && identifiers.includes(packageIdentifier));
+  }) ?? null;
   if (directMatch) return directMatch;
 
-  const normalized = snapshot.productIdentifier.toLowerCase();
-  if (
-    normalized.includes('life')
-    || normalized.includes('forever')
-    || normalized.includes('permanent')
-  ) {
+  if (identifiers.some((value) => (
+    value.includes('life')
+    || value.includes('forever')
+    || value.includes('permanent')
+  ))) {
     return packages.find((item) => item.packageType === 'LIFETIME') ?? null;
   }
-  if (
-    normalized.includes('year')
-    || normalized.includes('annual')
-    || normalized.includes('annually')
-  ) {
+  if (identifiers.some((value) => (
+    value.includes('year')
+    || value.includes('annual')
+    || value.includes('annually')
+  ))) {
     return packages.find((item) => item.packageType === 'ANNUAL') ?? null;
   }
-  if (normalized.includes('month')) {
+  if (identifiers.some((value) => value.includes('month'))) {
     return packages.find((item) => item.packageType === 'MONTHLY') ?? null;
   }
   return null;
+}
+
+export function selectDisplayedRevenueCatPackage(
+  packages: ProPaywallPackage[],
+  snapshot: ProSubscriptionSnapshot | null,
+): ProPaywallPackage | null {
+  return selectOwnedLifetimeRevenueCatPackage(packages, snapshot)
+    ?? selectActiveRecurringRevenueCatPackage(packages, snapshot);
+}
+
+export function hasLifetimeProAccess(
+  packages: ProPaywallPackage[],
+  snapshot: ProSubscriptionSnapshot | null,
+): boolean {
+  return Boolean(selectOwnedLifetimeRevenueCatPackage(packages, snapshot));
 }
 
 export function toProPaywallPackage(aPackage: PurchasesPackage): ProPaywallPackage {
@@ -483,6 +568,11 @@ export const ProSubscriptionService = {
         customerInfoStatus: 'ok',
         customerInfoError: null,
         appUserId: snapshot.originalAppUserId,
+        snapshotProductIdentifier: snapshot.productIdentifier,
+        snapshotProductPlanIdentifier: snapshot.productPlanIdentifier,
+        activeSubscriptionProductIdentifiers: snapshot.activeSubscriptionProductIdentifiers,
+        purchasedProductIdentifiers: snapshot.purchasedProductIdentifiers,
+        nonSubscriptionProductIdentifiers: snapshot.nonSubscriptionProductIdentifiers,
       });
       logRevenueCatDiagnostic('customer_info:ok', {
         appUserId: snapshot.originalAppUserId,

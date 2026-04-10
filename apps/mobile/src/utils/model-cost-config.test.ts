@@ -1,11 +1,13 @@
 import {
   areModelCostsEqual,
   buildAddModelPatch,
+  buildBatchModelAllowlistPatch,
   buildModelAllowlistPatch,
   buildModelCostPatch,
   hasConfiguredModel,
   hasExplicitModelAllowlist,
   isModelInAllowlist,
+  listConfiguredModelAllowlistRefs,
   listExplicitConfiguredModels,
   listExplicitProviders,
   resolveModelCostEditorState,
@@ -245,6 +247,7 @@ describe('model-cost-config', () => {
     };
 
     expect(hasExplicitModelAllowlist(config)).toBe(true);
+    expect(listConfiguredModelAllowlistRefs(config)).toEqual(['openai/gpt-5']);
     expect(isModelInAllowlist(config, 'openai', 'gpt-5')).toBe(true);
     expect(isModelInAllowlist(config, 'openai', 'gpt-5.4-pro')).toBe(false);
   });
@@ -417,6 +420,54 @@ describe('model-cost-config', () => {
       provider: 'openai',
       modelId: 'gpt-5',
       enabled: true,
+    })).toBeNull();
+  });
+
+  it('builds a single batch patch for mixed allowlist changes', () => {
+    const patch = buildBatchModelAllowlistPatch({
+      config: {
+        agents: {
+          defaults: {
+            models: {
+              'openai/gpt-5': {},
+              'anthropic/claude-sonnet-4-6': {},
+            },
+          },
+        },
+      },
+      changes: [
+        { provider: 'openai', modelId: 'gpt-5', enabled: false },
+        { provider: 'openai', modelId: 'gpt-5.4-pro', enabled: true },
+        { provider: 'anthropic', modelId: 'claude-sonnet-4-6', enabled: true },
+      ],
+    });
+
+    expect(patch).toEqual({
+      agents: {
+        defaults: {
+          models: {
+            'openai/gpt-5': null,
+            'openai/gpt-5.4-pro': {},
+          },
+        },
+      },
+    });
+  });
+
+  it('skips a batch allowlist patch when every membership is unchanged', () => {
+    expect(buildBatchModelAllowlistPatch({
+      config: {
+        agents: {
+          defaults: {
+            models: {
+              'openai/gpt-5': {},
+            },
+          },
+        },
+      },
+      changes: [
+        { provider: 'openai', modelId: 'gpt-5', enabled: true },
+      ],
     })).toBeNull();
   });
 

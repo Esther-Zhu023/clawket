@@ -11,7 +11,7 @@ import {
   type ProSubscriptionSnapshot,
   resolveRevenueCatConfig,
   selectDefaultRevenueCatPackage,
-  selectSnapshotRevenueCatPackage,
+  selectDisplayedRevenueCatPackage,
 } from '../services/pro-subscription';
 import { StorageService } from '../services/storage';
 import { syncAnalyticsSubscriptionContext } from '../services/analytics/subscription-context';
@@ -80,6 +80,7 @@ export function ProPaywallProvider({ children }: { children: React.ReactNode }):
   const offeringsRequestIdRef = useRef(0);
   const paywallListenerRef = useRef<((info: ProPurchaseResult['customerInfo']) => void) | null>(null);
   const bootstrapRunIdRef = useRef(0);
+  const previewSelectionInitializedRef = useRef(false);
 
   const delay = useCallback((ms: number) => new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
@@ -272,9 +273,21 @@ export function ProPaywallProvider({ children }: { children: React.ReactNode }):
   }, [blockedFeature, debugOverrideEnabled, previewOnly, refreshOfferings]);
 
   useEffect(() => {
-    if (!previewOnly || !snapshot?.isActive || paywallPackages.length === 0) return;
-    const matchingPackage = selectSnapshotRevenueCatPackage(paywallPackages, snapshot);
-    if (!matchingPackage) return;
+    if (!previewOnly) {
+      previewSelectionInitializedRef.current = false;
+      return;
+    }
+    if (!snapshot?.isActive || paywallPackages.length === 0) return;
+    const matchingPackage = selectDisplayedRevenueCatPackage(paywallPackages, snapshot);
+    if (!matchingPackage) {
+      previewSelectionInitializedRef.current = false;
+      if (selectedPackageId !== null) {
+        setSelectedPackageId(null);
+      }
+      return;
+    }
+    if (previewSelectionInitializedRef.current && matchingPackage.packageIdentifier === selectedPackageId) return;
+    previewSelectionInitializedRef.current = true;
     if (matchingPackage.packageIdentifier !== selectedPackageId) {
       setSelectedPackageId(matchingPackage.packageIdentifier);
     }

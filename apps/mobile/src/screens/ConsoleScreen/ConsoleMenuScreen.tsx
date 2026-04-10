@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, RefreshCw, Share2 } from 'lucide-react-native';
 import { Animated, Easing, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CommonActions, useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme';
@@ -778,19 +778,13 @@ export function ConsoleMenuScreen(): React.JSX.Element {
         <View style={styles.listSection}>
           <TouchableOpacity
             style={[styles.listItem, { borderColor: colors.border }]}
-            onPress={() => {
-              analyticsEvents.consoleEntryTapped({
-                destination: 'Office',
-                source: 'list_office',
-              });
-              navigation.dispatch(CommonActions.navigate({ name: 'Office' }));
-            }}
+            onPress={() => nav('Discover', 'list_discover')}
             activeOpacity={0.7}
           >
-            <Text style={styles.listEmoji}>{'🏢'}</Text>
+            <Text style={styles.listEmoji}>{'🧩'}</Text>
             <View style={styles.listText}>
-              <Text style={[styles.listTitle, { color: colors.text }]}>{t('Office', { ns: 'common' })}</Text>
-              <Text style={[styles.listDesc, { color: colors.textMuted }]}>{t('A pixel office workspace', { ns: 'common' })}</Text>
+              <Text style={[styles.listTitle, { color: colors.text }]}>{t('Discover', { ns: 'common' })}</Text>
+              <Text style={[styles.listDesc, { color: colors.textMuted }]}>{t('Browse skills across ClawHub and skills.sh', { ns: 'common' })}</Text>
             </View>
             <ChevronRight size={16} color={colors.textSubtle} strokeWidth={2} />
           </TouchableOpacity>

@@ -16,7 +16,7 @@ type ScreenDefinition = {
   area: 'chat' | 'discover' | 'office' | 'console' | 'settings';
   kind: 'root' | 'list' | 'detail' | 'editor' | 'webview';
   name: string;
-  tab: 'Chat' | 'Discover' | 'Office' | 'Console' | 'My';
+  tab: 'Chat' | 'Office' | 'Console' | 'My';
 };
 
 type ActiveRouteSnapshot = {
@@ -38,10 +38,10 @@ export type TrackedScreen = {
 
 export const TRACKED_SCREEN_DEFINITIONS: Record<string, ScreenDefinition> = {
   ChatMain: { name: 'Chat', area: 'chat', tab: 'Chat', kind: 'root' },
-  DiscoverHome: { name: 'Discover', area: 'discover', tab: 'Discover', kind: 'root' },
-  DiscoverDetail: { name: 'Discover Detail', area: 'discover', tab: 'Discover', kind: 'detail' },
-  DiscoverClawHubBrowse: { name: 'Discover ClawHub Browse', area: 'discover', tab: 'Discover', kind: 'list' },
-  DiscoverSkillsShBrowse: { name: 'Discover skills.sh Browse', area: 'discover', tab: 'Discover', kind: 'list' },
+  DiscoverHome: { name: 'Discover', area: 'discover', tab: 'Console', kind: 'root' },
+  DiscoverDetail: { name: 'Discover Detail', area: 'discover', tab: 'Console', kind: 'detail' },
+  DiscoverClawHubBrowse: { name: 'Discover ClawHub Browse', area: 'discover', tab: 'Console', kind: 'list' },
+  DiscoverSkillsShBrowse: { name: 'Discover skills.sh Browse', area: 'discover', tab: 'Console', kind: 'list' },
   Office: { name: 'Office', area: 'office', tab: 'Office', kind: 'root' },
   ConsoleMenu: { name: 'Console', area: 'console', tab: 'Console', kind: 'root' },
   ConfigHome: { name: 'Settings', area: 'settings', tab: 'My', kind: 'root' },

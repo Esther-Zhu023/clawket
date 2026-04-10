@@ -29,6 +29,10 @@ describe('app update announcement service', () => {
     expect(getCurrentAppUpdateAnnouncement('1.2.0')).not.toBeNull();
   });
 
+  it('keeps the 1.9.0 release announcement available in the history', () => {
+    expect(getCurrentAppUpdateAnnouncement('1.9.0')).not.toBeNull();
+  });
+
   it('returns null when the app version is not in the unified release history', () => {
     expect(getCurrentAppUpdateAnnouncement('2.0.0')).toBeNull();
   });
@@ -82,7 +86,7 @@ describe('app update announcement service', () => {
     await markCurrentAppUpdateAnnouncementShown();
 
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-      'clawket.appUpdateAnnouncementSeen.v1:1.9.0',
+      'clawket.appUpdateAnnouncementSeen.v1:1.10.0',
       '1',
     );
   });

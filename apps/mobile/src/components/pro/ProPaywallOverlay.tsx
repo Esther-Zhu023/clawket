@@ -13,10 +13,11 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { FullWindowOverlay } from 'react-native-screens';
-import { RefreshCcw, ShieldCheck, X } from 'lucide-react-native';
+import { Check, RefreshCcw, ShieldCheck, X } from 'lucide-react-native';
 import { publicAppLinks } from '../../config/public';
 import { useProPaywall } from '../../contexts/ProPaywallContext';
 import { analyticsEvents } from '../../services/analytics/events';
+import { selectDisplayedRevenueCatPackage } from '../../services/pro-subscription';
 import { useAppTheme } from '../../theme';
 import { FontSize, FontWeight, Radius, Shadow, Space } from '../../theme/tokens';
 
@@ -45,6 +46,7 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
     selectPackage,
     selectedPackage,
     selectedPackageId,
+    snapshot,
     showPaywall,
     showPaywallPreview,
     statusCode,
@@ -125,6 +127,7 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
     { emoji: '\uD83D\uDCCA', text: t('Search chat history & view logs') },
   ];
 
+  const activePackage = selectDisplayedRevenueCatPackage(paywallPackages, snapshot);
   const interactionLocked = previewOnly && isPro;
   const purchaseDisabled = interactionLocked || purchasePending || restorePending || offeringsLoading || isLoading || !isConfigured || !selectedPackage;
   const restoreDisabled = interactionLocked || restorePending || purchasePending;
@@ -184,6 +187,7 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
           <View style={styles.planGrid}>
             {paywallPackages.map((item) => {
               const selected = item.packageIdentifier === selectedPackageId;
+              const isCurrentPlan = item.packageIdentifier === activePackage?.packageIdentifier;
               return (
                 <Pressable
                   key={item.packageIdentifier}
@@ -204,7 +208,12 @@ export function ProPaywallOverlay({ visible, onClose }: Props): React.JSX.Elemen
                   ]}
                 >
                   <View style={styles.planHeaderRow}>
-                    <Text style={styles.planTitle}>{formatPackageLabel(item.packageType, t)}</Text>
+                    <View style={styles.planTitleRow}>
+                      <Text style={styles.planTitle}>{formatPackageLabel(item.packageType, t)}</Text>
+                      {isCurrentPlan ? (
+                        <Check size={14} color={theme.colors.primary} strokeWidth={2.6} />
+                      ) : null}
+                    </View>
                     <Text style={styles.planPrice}>{item.priceString}</Text>
                   </View>
                   {item.pricePerMonthString && item.packageType === 'ANNUAL' ? (
@@ -516,6 +525,12 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['theme']['colors'])
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: Space.md,
+    },
+    planTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Space.xs,
+      flexShrink: 1,
     },
     planTitle: {
       fontSize: FontSize.base,

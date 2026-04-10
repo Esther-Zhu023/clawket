@@ -6,7 +6,7 @@ export type AppUpdateAnnouncementAction =
     }
   | {
       type: 'navigate_tab';
-      screen: 'Discover';
+      screen: 'Office';
     }
   | {
       type: 'open_url';
@@ -14,7 +14,7 @@ export type AppUpdateAnnouncementAction =
     }
   | {
       type: 'navigate_console';
-      screen: 'CronWizard' | 'SessionsBoard' | 'AgentSessionsBoard' | 'ModelList' | 'Nodes';
+      screen: 'Discover' | 'CronWizard' | 'SessionsBoard' | 'AgentSessionsBoard' | 'ModelList' | 'Nodes';
     }
   | {
       type: 'navigate_config';
@@ -48,19 +48,33 @@ export const DEFAULT_APP_UPDATE_DEBUG_HINT =
 // Keep this array newest-first. The first entry is treated as the latest release.
 export const APP_UPDATE_RELEASES: AppUpdateRelease[] = [
   {
-    version: '1.9.0',
-    releasedAt: '2026-04-07',
+    version: '1.10.0',
+    releasedAt: '2026-04-10',
     entries: [
       {
-        id: 'discover-tab',
+        id: 'discover-console-page',
         emoji: '🧩',
-        title: 'New Discover Tab',
-        subtitle: 'Explore the all-new Discover page from our second tab.',
+        title: 'Discover',
+        subtitle: 'Browse skills across ClawHub and skills.sh',
         action: {
-          type: 'navigate_tab',
+          type: 'navigate_console',
           screen: 'Discover',
         },
       },
+      {
+        id: 'bug-fixes-and-experience-improvements',
+        emoji: '🛠️',
+        title: 'Bug fixes and experience improvements',
+        action: {
+          type: 'none',
+        },
+      },
+    ],
+  },
+  {
+    version: '1.9.0',
+    releasedAt: '2026-04-07',
+    entries: [
       {
         id: 'one-click-permission-repair',
         emoji: '🔧',

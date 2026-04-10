@@ -37,7 +37,7 @@ let sweatAnimTimer = 0;
 
 const VIRTUAL_WIDTH = WORLD_WIDTH;
 const VIRTUAL_HEIGHT = WORLD_HEIGHT;
-const TOP_GRASS_CROP_PX = TILE_SIZE * 3;
+const TOP_GRASS_CROP_PX = 0;
 
 export function initRenderer(canvasEl: HTMLCanvasElement): void {
   canvas = canvasEl;

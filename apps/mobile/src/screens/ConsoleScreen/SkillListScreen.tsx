@@ -79,7 +79,7 @@ export function SkillListScreen(): React.JSX.Element {
   const navigation = useNavigation<SkillListNavigation>();
   const styles = useMemo(() => createStyles(theme.colors), [theme]);
 
-  const handleOpenClawHub = useCallback(() => {
+  const handleOpenDiscover = useCallback(() => {
     analyticsEvents.clawHubCreateTapped({
       source: 'skill_list_header',
     });
@@ -89,12 +89,12 @@ export function SkillListScreen(): React.JSX.Element {
       navigation.dispatch(
         CommonActions.reset({
           index: 1,
-          routes: [{ name: 'ConsoleMenu' }, { name: 'ClawHub' }],
+          routes: [{ name: 'ConsoleMenu' }, { name: 'Discover' }],
         }),
       );
     } else {
       // At RootStack level (opened from Office/Chat) —
-      // atomic reset: dismiss SkillList + switch to Console tab with ClawHub
+      // atomic reset: dismiss SkillList + switch to Console tab with Discover
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       navigation.dispatch((rootState: any) => {
         const mainTabsRoute = rootState.routes.find((r: any) => r.name === 'MainTabs');
@@ -109,7 +109,7 @@ export function SkillListScreen(): React.JSX.Element {
               index: consoleIndex,
               routes: tabState.routes.map((r: any) =>
                 r.name === 'Console'
-                  ? { ...r, state: { routes: [{ name: 'ConsoleMenu' }, { name: 'ClawHub' }] } }
+                  ? { ...r, state: { routes: [{ name: 'ConsoleMenu' }, { name: 'Discover' }] } }
                   : r,
               ),
             } : undefined,
@@ -124,7 +124,7 @@ export function SkillListScreen(): React.JSX.Element {
     title: t('Skills'),
     onClose: () => navigation.goBack(),
     rightContent: (
-      <HeaderActionButton icon={Plus} onPress={handleOpenClawHub} size={20} />
+      <HeaderActionButton icon={Plus} onPress={handleOpenDiscover} size={20} />
     ),
   });
 

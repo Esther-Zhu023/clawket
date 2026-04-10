@@ -44,8 +44,16 @@ export function DiscoverTabNavigator(): React.JSX.Element {
         component={DiscoverDetailScreen}
         options={modalScreenOptions}
       />
-      <DiscoverStack.Screen name="DiscoverClawHubBrowse" component={ClawHubBrowseScreen} />
-      <DiscoverStack.Screen name="DiscoverSkillsShBrowse" component={SkillsShBrowseScreen} />
+      <DiscoverStack.Screen
+        name="DiscoverClawHubBrowse"
+        component={ClawHubBrowseScreen}
+        options={modalScreenOptions}
+      />
+      <DiscoverStack.Screen
+        name="DiscoverSkillsShBrowse"
+        component={SkillsShBrowseScreen}
+        options={modalScreenOptions}
+      />
     </DiscoverStack.Navigator>
   );
 }

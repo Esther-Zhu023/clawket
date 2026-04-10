@@ -36,6 +36,8 @@
   "This will create a new model allowlist with this model and restart Gateway. Other models may disappear until you enable them too. Continue?": "このモデルで新しい model allowlist を作成し、Gateway を再起動します。他のモデルは、再度有効にするまで表示されなくなる可能性があります。続行しますか？",
   "This will add the selected model to agents.defaults.models and restart Gateway. Continue?": "選択したモデルを agents.defaults.models に追加し、Gateway を再起動します。続行しますか？",
   "This will remove the selected model from agents.defaults.models and restart Gateway. Continue?": "選択したモデルを agents.defaults.models から削除し、Gateway を再起動します。続行しますか？",
+  "This will apply your pending model changes and restart Gateway once. Continue?": "保留中のモデル変更をまとめて適用し、Gateway を 1 回再起動します。続行しますか？",
+  "This will create a new model allowlist from your pending selections and restart Gateway once. Models left off may disappear until you enable them again. Continue?": "保留中の選択内容から新しい model allowlist を作成し、Gateway を 1 回再起動します。オフのまま残したモデルは、再度有効にするまで表示されなくなる場合があります。続行しますか？",
   "Updating allowlist...": "allowlist を更新中...",
   "Restarting Gateway to apply allowlist...": "allowlist を適用するため Gateway を再起動しています...",
   "This model cannot be edited because its provider is not explicitly declared in Gateway config.": "このモデルは provider が Gateway 設定で明示されていないため編集できません。",

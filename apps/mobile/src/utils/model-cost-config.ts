@@ -138,6 +138,15 @@ export function hasExplicitModelAllowlist(config: ConfigObject | null | undefine
   return !!allowlist && Object.keys(allowlist).length > 0;
 }
 
+export function listConfiguredModelAllowlistRefs(config: ConfigObject | null | undefined): string[] {
+  const allowlist = readConfiguredModelAllowlist(config);
+  if (!allowlist) return [];
+  return Object.keys(allowlist)
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 export function isModelInAllowlist(config: ConfigObject | null | undefined, provider: string, modelId: string): boolean {
   const allowlist = readConfiguredModelAllowlist(config);
   if (!allowlist) return false;
@@ -295,6 +304,38 @@ export function buildModelAllowlistPatch(params: {
         models: {
           [key]: params.enabled ? {} : null,
         },
+      },
+    },
+  };
+}
+
+export function buildBatchModelAllowlistPatch(params: {
+  config: ConfigObject | null | undefined;
+  changes: Array<{
+    provider: string;
+    modelId: string;
+    enabled: boolean;
+  }>;
+}): Record<string, unknown> | null {
+  const modelsPatch: Record<string, {} | null> = {};
+
+  for (const change of params.changes) {
+    const key = `${change.provider}/${change.modelId}`;
+    const inAllowlist = isModelInAllowlist(params.config, change.provider, change.modelId);
+    if (change.enabled === inAllowlist) {
+      continue;
+    }
+    modelsPatch[key] = change.enabled ? {} : null;
+  }
+
+  if (Object.keys(modelsPatch).length === 0) {
+    return null;
+  }
+
+  return {
+    agents: {
+      defaults: {
+        models: modelsPatch,
       },
     },
   };
